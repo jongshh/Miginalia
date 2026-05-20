@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "liminal-guide-web",
+  "compatibility_date": "2026-05-20",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "liminal-guide-demo"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
