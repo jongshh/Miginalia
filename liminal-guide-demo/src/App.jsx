@@ -117,59 +117,128 @@ const GlitchText = ({ text, instability }) => {
   );
 };
 
-// --- TTS 자체 음성 왜곡 (청크 분할 기법) ---
-const speakText = (text, instability) => {
-  if (!('speechSynthesis' in window)) return;
+// --- OpenAI TTS 음성 재생 및 왜곡 ---
+let audioCtx = null;
+let activeSources = [];
 
-  // 기존 큐 지우기
-  window.speechSynthesis.cancel();
+// 단일 청크를 TTS API로 변환
+const fetchTtsChunk = async (proxyUrl, text, voice, speed) => {
+  const response = await fetch(`${proxyUrl}tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: text, voice, speed })
+  });
+  if (!response.ok) return null;
+  const arrayBuffer = await response.arrayBuffer();
+  return audioCtx.decodeAudioData(arrayBuffer);
+};
+
+// 텍스트를 문장 단위로 분할
+const splitIntoSentences = (text) => {
+  // 한국어 문장 종결 부호로 분할하되, 빈 문자열 제거
+  const parts = text.split(/(?<=[.!?。])\s+/).filter(s => s.trim().length > 0);
+  return parts.length > 0 ? parts : [text];
+};
+
+const speakText = async (text, instability, proxyUrl) => {
+  if (!proxyUrl) return;
+
+  // 이전 오디오 모두 중단
+  activeSources.forEach(s => { try { s.stop(); } catch (e) { } });
+  activeSources = [];
+
+  // AudioContext 초기화
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
+  // Phase에 따른 음성 설정
+  let voice = 'alloy';
+  let speed = 1.0;
 
   if (instability < 30) {
-    // 30 미만일 때는 정상적으로 한 번에 재생
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ko-KR';
-    utterance.pitch = 1;
-    utterance.rate = 1.1;
-    window.speechSynthesis.speak(utterance);
-    return;
+    voice = 'alloy';
+    speed = 1.05;
+  } else if (instability < 60) {
+    voice = 'onyx';
+    speed = 0.95;
+  } else {
+    voice = 'echo';
+    speed = 0.9;
   }
 
-  // 불안정성이 30 이상일 경우: 텍스트를 청크 단위로 쪼개어 재생
-  // Phase 2 (30~60)는 약한 왜곡, Phase 3 (60+)는 강한 왜곡
-  const words = text.split(' ');
-  const chunkSize = instability < 60 ? 4 : 2;
-  const chunks = [];
-  for (let i = 0; i < words.length; i += chunkSize) {
-    chunks.push(words.slice(i, i + chunkSize).join(' '));
-  }
+  try {
+    // 문장별로 분할하여 병렬 TTS 요청
+    const sentences = splitIntoSentences(text);
+    const bufferPromises = sentences.map(s => fetchTtsChunk(proxyUrl, s, voice, speed));
+    const audioBuffers = await Promise.all(bufferPromises);
 
-  chunks.forEach((chunk) => {
-    const utterance = new SpeechSynthesisUtterance(chunk);
-    utterance.lang = 'ko-KR';
+    // 순차적으로 재생 스케줄링
+    let playTime = audioCtx.currentTime;
 
-    if (instability < 60) {
-      // Phase 2: 약간의 톤 떨림과 속도 변화
-      utterance.pitch = 0.8 + (Math.random() * 0.4); // 0.8 ~ 1.2
-      utterance.rate = 0.9 + (Math.random() * 0.3); // 0.9 ~ 1.2
-    } else {
-      // Phase 3: 극단적인 피치 및 속도 변형으로 고장난 로봇 연출
-      utterance.pitch = 0.1 + (Math.random() * 1.9); // 0.1 ~ 2.0
-      utterance.rate = 0.5 + (Math.random() * 1.0); // 0.5 ~ 1.5
+    audioBuffers.forEach((audioBuffer, idx) => {
+      if (!audioBuffer) return;
 
-      // 심각한 불안정성에서는 일부 청크의 볼륨을 약간 줄임
-      if (instability > 80 && Math.random() < 0.2) {
-        utterance.volume = 0.5;
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+
+      if (instability < 30) {
+        // Phase 1: 깨끗한 재생
+        source.connect(audioCtx.destination);
+        source.start(playTime);
+      } else if (instability < 60) {
+        // Phase 2: 미세한 피치 변화 + 약한 볼륨 떨림
+        source.playbackRate.value = 0.96 + (Math.random() * 0.08); // 0.96 ~ 1.04
+
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0.95;
+
+        // 부드러운 LFO 볼륨 떨림
+        const lfo = audioCtx.createOscillator();
+        const lfoGain = audioCtx.createGain();
+        lfo.frequency.value = 1.5 + (Math.random() * 2); // 1.5~3.5Hz
+        lfoGain.gain.value = 0.06; // 매우 약한 떨림
+        lfo.connect(lfoGain);
+        lfoGain.connect(gainNode.gain);
+        lfo.start(playTime);
+
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        source.start(playTime);
+        source.onended = () => lfo.stop();
+      } else {
+        // Phase 3: 문장별로 다른 피치/속도 — 부드럽게 완화된 왜곡
+        source.playbackRate.value = 0.75 + (Math.random() * 0.5); // 0.75 ~ 1.25
+
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = (instability > 80 && Math.random() < 0.15) ? 0.4 : 0.85;
+
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        // 문장 사이에 약간의 불규칙한 간격 추가
+        const jitter = instability > 70 ? (Math.random() * 0.3) : 0;
+        source.start(playTime + jitter);
       }
-    }
 
-    window.speechSynthesis.speak(utterance);
-  });
+      activeSources.push(source);
+      playTime += audioBuffer.duration;
+    });
+
+  } catch (err) {
+    console.warn('TTS playback failed:', err);
+  }
 };
 
 
 export default function App() {
+  // 프록시 URL이 있으면 키 없이 바로 접속, 없으면 수동 키 입력 (dev용)
+  const proxyUrl = import.meta.env.VITE_API_PROXY_URL || '';
   const [apiKey, setApiKey] = useState('');
-  const [isKeySaved, setIsKeySet] = useState(false);
+  const [isKeySaved, setIsKeySet] = useState(proxyUrl.length > 0);
 
   const [phase, setPhase] = useState(1);
   const [chatCount, setChatCount] = useState(0);
@@ -289,12 +358,16 @@ export default function App() {
     setMessages(prev => [...prev, ...newMessages]);
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // 프록시 URL이 있으면 프록시를 통해, 없으면 직접 OpenAI 호출 (dev 수동 키)
+      const useProxy = proxyUrl.length > 0;
+      const fetchUrl = useProxy ? proxyUrl : 'https://api.openai.com/v1/chat/completions';
+      const fetchHeaders = useProxy
+        ? { 'Content-Type': 'application/json' }
+        : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+
+      const response = await fetch(fetchUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
+        headers: fetchHeaders,
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           response_format: { type: 'json_object' },
@@ -303,7 +376,10 @@ export default function App() {
         })
       });
 
-      if (!response.ok) throw new Error("API CALL FAILED.");
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`API ${response.status}: ${errBody.substring(0, 200)}`);
+      }
 
       const data = await response.json();
       const parsedContent = JSON.parse(data.choices[0].message.content);
@@ -317,10 +393,16 @@ export default function App() {
         marginOffset: assistantMargin
       }]);
 
-      speakText(parsedContent.docent_text, instability);
+      speakText(parsedContent.docent_text, instability, proxyUrl);
 
     } catch (err) {
-      setError(err.message);
+      console.error('sendMessage error:', err);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 2,
+        role: 'assistant',
+        text: `[시스템 오류] ${err.message}`,
+        marginOffset: '0px'
+      }]);
     } finally {
       setIsLoading(false);
       setChatInput('');
@@ -343,7 +425,7 @@ export default function App() {
         <div className="text-center animate-pulse z-10">
           <EyeOff className="w-16 h-16 mx-auto mb-4 text-[#777] opacity-50" />
           <p className="text-red-800 tracking-widest text-xl font-bold glitch-word-1">CONNECTION LOST</p>
-          <p className="text-[#555] text-sm mt-4">시스템이 더 이상 응답하지 않습니다.</p>
+          <p className="text-[#555] text-sm mt-4">시스템은 더 이상 응답하고자 하지 않습니다.</p>
         </div>
         <div className="fixed bottom-4 left-4 z-50">
           <button onClick={() => { setPhase(1); setChatCount(0); window.speechSynthesis.cancel(); }} className="text-xs text-[#444] hover:text-[#888] underline">
@@ -425,6 +507,7 @@ export default function App() {
                 <Key className="w-5 h-5 text-[#888]" />
                 <h2 className="font-semibold text-white">System Authentication</h2>
               </div>
+              <p className="text-[10px] text-[#555] mb-4 font-mono">환경 변수(VITE_OPENAI_API_KEY)가 설정되지 않았습니다. 수동으로 키를 입력하세요.</p>
               <form onSubmit={handleKeySubmit} className="flex flex-col gap-4">
                 <input
                   type="password"
