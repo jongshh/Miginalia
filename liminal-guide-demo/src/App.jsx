@@ -234,6 +234,9 @@ const speakText = async (text, instability, proxyUrl) => {
 };
 
 
+// public 폴더 에셋 경로 헬퍼 (GitHub Pages base 경로 자동 적용)
+const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.startsWith('/') ? path.slice(1) : path}`;
+
 export default function App() {
   // 프록시 URL이 있으면 키 없이 바로 접속, 없으면 수동 키 입력 (dev용)
   const proxyUrl = import.meta.env.VITE_API_PROXY_URL || '';
@@ -632,7 +635,7 @@ export default function App() {
                   {instability > 30 && <div className="absolute inset-0 bg-red-900/10 mix-blend-color-burn pointer-events-none z-10" />}
                   <div className="relative h-32 md:h-48 w-full bg-black mb-3">
                     <img
-                      src={activeArtwork.imageUrl}
+                      src={assetUrl(activeArtwork.imageUrl)}
                       alt={activeArtwork.title}
                       className="w-full h-full object-cover opacity-70 grayscale transition-opacity hover:grayscale-0 duration-500"
                     />
@@ -659,7 +662,7 @@ export default function App() {
                       ${selectedArtworkId === art.id ? 'border-[#555] bg-[#1a1a1a]' : 'border-[#222] hover:border-[#444] opacity-50 hover:opacity-100'}
                     `}
                     >
-                      <img src={art.imageUrl} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
+                      <img src={assetUrl(art.imageUrl)} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
                       <div className="flex-1 overflow-hidden">
                         <p className="text-xs font-semibold text-white truncate">{art.title}</p>
                         <p className="text-[10px] text-[#888]">{art.artist} · {art.year}</p>
