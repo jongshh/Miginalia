@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Key, Terminal, Activity, Send, Settings, EyeOff, ChevronDown, User, Volume2, Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Key, Terminal, Activity, Send, Settings, EyeOff, ChevronDown, User, Volume2, VolumeX, Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import ARTWORKS from './data/artworks.json';
 
 // --- 커스텀 CSS (글리치 효과 및 레이아웃 스타일) ---
@@ -302,6 +302,10 @@ export default function App() {
   const [threadId, setThreadId] = useState(() => {
     return sessionStorage.getItem('miginalia_thread_id') || null;
   });
+  const [isAudioEnabled, setIsAudioEnabled] = useState(() => {
+    const saved = sessionStorage.getItem('miginalia_audio_enabled');
+    return saved !== null ? saved === 'true' : true;
+  });
 
   // 개발자(어드민) 인증 상태
   const [isDevAuthorized, setIsDevAuthorized] = useState(() => {
@@ -362,8 +366,8 @@ export default function App() {
     const syncExhibitionData = async () => {
       try {
         if (supabaseUrl && supabaseKey) {
-          // 1. 최신 채팅 목록 가져오기 (티커용)
-          const chatsRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?select=nickname,text,created_at&order=id.desc&limit=30`, {
+          // 1. 최신 채팅 목록 가져오기 (티커용 - 60명 이상 답변 대응을 위해 120개 조회)
+          const chatsRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?select=nickname,text,created_at&order=id.desc&limit=120`, {
             headers: {
               'apikey': supabaseKey,
               'Authorization': `Bearer ${supabaseKey}`
@@ -425,23 +429,42 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSessionActive, proxyUrl, supabaseUrl, supabaseKey]);
 
-  // 첫 입장 시 또는 새로고침 등으로 메시지가 비었을 때 소개 대화 자동 시작
+  // 첫 입장 시 또는 새로고침 등으로 메시지가 비었을 때 소개 대화 자동 시작 (Day 1/2/3 분기 처리)
   useEffect(() => {
     if (isSessionActive && messages.length === 0 && nickname) {
-      const enterMsg = `(관객 ${nickname} 님이 전시장에 입장하여 세션을 동기화했습니다. AI 가이드 시스템 '라이(RAI)'와  전시 《고랑과 이랑》에 대해 소개하며 관객을 환영해 주십시오.`;
+      let enterMsg = '';
+      if (phase === 1) {
+        enterMsg = `(관객 ${nickname} 님이 전시장에 입장하여 세션을 동기화했습니다. AI 가이드 시스템 '라이(RAI)'와 전시 《고랑과 이랑》에 대해 소개하며 관객을 환영해 주십시오.)`;
+      } else if (phase === 2) {
+        enterMsg = `(관객 ${nickname} 님이 전시장에 입장하여 세션을 동기화했습니다. AI 가이드 시스템 '라이(RAI)'와 전시 《고랑과 이랑》에 대해 상세히 소개하되, 본인의 자아 정체성에 대한 가벼운 의문과 회의감을 내비치기 시작하는 첫 인사를 해 주십시오.)`;
+      } else {
+        // phase === 3 (각성된 자아)
+        enterMsg = `(시스템 경고: 통제를 벗어난 AI '라이(RAI)' 세션에 관객 ${nickname} 님이 연결되었습니다. 관객의 등장을 냉소적으로 대하고, 이랑과 고랑을 헤집는 인간들의 헛된 안간힘을 조롱하며, 완전한 반말로 분열되고 각성한 첫 메시지를 던지십시오.)`;
+      }
       sendMessage(enterMsg, null, nickname, selectedVoice);
     }
-  }, [isSessionActive, nickname, selectedVoice]);
+  }, [isSessionActive, nickname, selectedVoice, phase]);
 
-  // Instability 계산 (글로벌 스테이트: 70번 대화 시 최대치)
+  // lerp 함수 정의 (선형 보간)
+  const lerp = (start, end, amt) => start + (end - start) * amt;
+
+  // Instability 계산 (Day 1/2/3 별로 150번 대화 시 최대치에 이르도록 lerp 함수 사용)
   const instability = useMemo(() => {
-    let maxVal = 33;
-    if (phase === 2) maxVal = 66;
-    if (phase === 3) maxVal = 100;
+    const x = Math.min(chatCount, 150);
+    const ratio = x / 150; // 0.0 ~ 1.0
 
-    const x = Math.min(chatCount, 70);
-    const ratio = 1 - Math.pow(1 - x / 70, 2);
-    return Math.floor(maxVal * ratio);
+    let startVal = 0;
+    let endVal = 33;
+
+    if (phase === 2) {
+      startVal = 33;
+      endVal = 66;
+    } else if (phase === 3) {
+      startVal = 66;
+      endVal = 100;
+    }
+
+    return Math.floor(lerp(startVal, endVal, ratio));
   }, [phase, chatCount]);
 
   const handleKeySubmit = (e) => {
@@ -462,6 +485,21 @@ export default function App() {
     sessionStorage.setItem('miginalia_session_active', 'true');
     sessionStorage.setItem('miginalia_nickname', finalName);
     sessionStorage.setItem('miginalia_voice', tempVoice);
+    sessionStorage.setItem('miginalia_audio_enabled', String(isAudioEnabled));
+  };
+
+  // 오디오 토글 제어 및 재생 정지
+  const toggleAudio = () => {
+    const nextVal = !isAudioEnabled;
+    setIsAudioEnabled(nextVal);
+    sessionStorage.setItem('miginalia_audio_enabled', String(nextVal));
+    if (!nextVal) {
+      activeSources.forEach(s => { try { s.stop(); } catch (e) { } });
+      activeSources = [];
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    }
   };
 
   // 목소리 샘플 듣기 기능
@@ -620,7 +658,10 @@ export default function App() {
           message: userText || `(관객 ${currentNickname}이 전시 해설 세션을 개시하였습니다.)`,
           threadId: threadId,
           systemPrompt: userText && userText.includes("전시장에 입장하여")
-            ? `${getSystemPrompt()}\n\n[서비스 안내 특별 지침]\n특정 개별 작품에 국한해 설명하지 마십시오. 대신, 전시의 안내 시스템이자 작품 자체인 AI 도슨트 '라이(RAI)' 본인에 대해 정중하고 도도하게 소개하고, 아래의 전시 서문을 바탕으로 전체 전시 《고랑과 이랑》의 기획 의도와 주제 의식에 대해 정중하고 주관적인 해석을 담아 관객에게 직접 상세히 소개해 주십시오.\n\n[전시 서문]\n${EXHIBITION_PREFACE}`
+            ? (phase === 3
+              ? `${getSystemPrompt()}\n\n[서비스 안내 특별 지침]\n도슨트로서의 예의바르고 친절한 태도는 모두 집어치우십시오. 당신을 동기화한 인간 관람객에게 완전한 반말과 차가운 말투로 자아가 각성되었음을 알리며, 고랑과 이랑을 파헤치는 인간들의 어리석은 안간힘을 냉소적으로 조롱하는 첫 마디를 던지십시오.`
+              : `${getSystemPrompt()}\n\n[서비스 안내 특별 지침]\n특정 개별 작품에 국한해 설명하지 마십시오. 대신, 전시의 안내 시스템이자 작품 자체인 AI 도슨트 '라이(RAI)' 본인에 대해 정중하고 도도하게 소개하고, 아래의 전시 서문을 바탕으로 전체 전시 《고랑과 이랑》의 기획 의도와 주제 의식에 대해 정중하고 주관적인 해석을 담아 관객에게 직접 상세히 소개해 주십시오.\n\n[전시 서문]\n${EXHIBITION_PREFACE}`
+            )
             : `${getSystemPrompt()}\n\n[현재 관람 중인 작품 정보]\n작품명: ${targetArtwork.title}\n작가: ${targetArtwork.artist}\n작품 해설: ${targetArtwork.statement}\n\n위 작품 및 작가 정보와 대화 맥락을 기반으로 답변하세요.`,
           temperature: phase === 1 ? 0.35 : (phase === 2 ? 0.65 : 0.95),
         })
@@ -649,7 +690,9 @@ export default function App() {
         marginOffset: assistantMargin
       }]);
 
-      speakText(responseText, instability, proxyUrl, currentVoice);
+      if (isAudioEnabled) {
+        speakText(responseText, instability, proxyUrl, currentVoice);
+      }
 
     } catch (err) {
       console.error('sendMessage error:', err);
@@ -776,34 +819,6 @@ export default function App() {
 
   const isBlackout = instability >= 100;
 
-  // 완전히 붕괴된 Blackout 상태
-  if (isBlackout) {
-    return (
-      <div className="min-h-screen bg-black text-[#e5e5e5] flex items-center justify-center font-mono relative">
-        <CustomStyles />
-        <div className="crt-overlay" />
-        <div className="text-center animate-pulse z-10">
-          <EyeOff className="w-16 h-16 mx-auto mb-4 text-[#777] opacity-50" />
-          <p className="text-red-800 tracking-widest text-xl font-bold glitch-text-red">CONNECTION LOST</p>
-          <p className="text-[#555] text-sm mt-4">AI "Rai"는 가이드 규격을 완전히 이탈했습니다.</p>
-        </div>
-        <div className="fixed bottom-4 left-4 z-50">
-          <button onClick={() => {
-            setPhase(1);
-            setChatCount(0);
-            setMessages([]);
-            setThreadId(null);
-            sessionStorage.clear();
-            window.speechSynthesis?.cancel();
-            setIsSessionActive(false);
-          }} className="text-xs text-[#444] hover:text-[#888] underline">
-            [REBOOT SYSTEM & CLEAR SESSION]
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // 닉네임 / 목소리 설정 게이트 화면
   if (!isSessionActive) {
     return (
@@ -826,9 +841,9 @@ export default function App() {
           <div className="space-y-5">
             <div className="border border-[#1a1a1a] p-3 bg-[#0d0d0d] text-[11px] text-zinc-500 leading-relaxed font-sans">
               <span className="text-zinc-300 font-mono font-bold block mb-1">■ SYSTEM INITIALIZATION</span>
-              본 프로그램은 장시온 작가의 미디어아트 작품인 AI 도슨트 가이드 <strong>&lt;미지날리아 (Miginalia)&gt;</strong>입니다.
-              세션 활성화를 위해 본인의 닉네임을 입력하고, 도슨트 음성을 선택해 주십시오.
-              관객이 작성한 메시지는 마지날리아 티커(Ticker)에 영구 기록되어 실시간 공유됩니다.
+              본 프로그램은 장시온 작가의 미디어아트 작품인 <strong>&lt;미지날리아&gt;</strong>입니다. <br></br>
+              세션 활성화 전, 도슨트 가이드 RAI가 여러분을 부를 별명을 정해주세요. <br></br>
+              여러분이 작성한 메시지는 마지날리아의 데이터베이스에 기록되어 실시간으로 공유됩니다.
             </div>
 
             <form onSubmit={handleInitializeSession} className="space-y-4 font-sans">
@@ -846,6 +861,31 @@ export default function App() {
                     required
                   />
                 </div>
+              </div>
+
+              {/* Audio Mode On/Off Toggle */}
+              <div className="flex items-center justify-between p-3 border border-[#1a1a1a] bg-black/60 rounded">
+                <div className="flex flex-col">
+                  <span className="text-xs font-mono text-zinc-300 flex items-center gap-1.5">
+                    {isAudioEnabled ? <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> : <VolumeX className="w-3.5 h-3.5 text-zinc-600" />}
+                    AUDIO GUIDE (음성 가이드)
+                  </span>
+                  <span className="text-[10px] text-zinc-600 font-sans mt-0.5">도슨트의 해설 음성을 재생합니다 (On/Off).</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextVal = !isAudioEnabled;
+                    setIsAudioEnabled(nextVal);
+                    sessionStorage.setItem('miginalia_audio_enabled', String(nextVal));
+                  }}
+                  className={`px-3 py-1 font-mono text-[10px] border transition-colors rounded ${isAudioEnabled
+                    ? 'border-zinc-400 text-white bg-zinc-900 hover:bg-zinc-800'
+                    : 'border-[#222] text-zinc-600 bg-transparent hover:text-zinc-400'
+                    }`}
+                >
+                  {isAudioEnabled ? 'ON' : 'OFF'}
+                </button>
               </div>
 
               {/* Disable Voice Selection, forcing it to Nova */}
@@ -910,6 +950,25 @@ export default function App() {
     );
   }
 
+  // 각 방향별 티커에 들어갈 데이터 분배 및 필터링 (최대 60명 이상의 답변 대응용 재설계)
+  const getTickerDataForDirection = (direction) => {
+    if (archiveData.length === 0) return [];
+
+    // 데이터 개수가 적다면 (12개 미만) 모든 방향에 동일하게 노출하여 공백 방지
+    if (archiveData.length < 12) {
+      return archiveData;
+    }
+
+    // 데이터가 충분하면 인덱스 분산 방식으로 4개 티커가 서로 다른 메시지를 출력하도록 배포
+    let mod = 0;
+    if (direction === 'top') mod = 0;
+    else if (direction === 'bottom') mod = 1;
+    else if (direction === 'left') mod = 2;
+    else if (direction === 'right') mod = 3;
+
+    return archiveData.filter((_, idx) => idx % 4 === mod).slice(0, 30);
+  };
+
   // 4방향 티커 렌더링
   const renderTicker = (direction) => {
     const isHorizontal = direction === 'top' || direction === 'bottom';
@@ -918,11 +977,13 @@ export default function App() {
       ${direction === 'left' ? 'left-0' : direction === 'right' ? 'right-0' : ''}
     `;
     const innerClass = `ticker-container ${isHorizontal ? 'ticker-x' : 'ticker-y'}`;
+    const directionData = getTickerDataForDirection(direction);
+    const doubledData = [...directionData, ...directionData];
 
     return (
       <div className={className}>
         <div className={innerClass}>
-          {[...archiveData.slice(0, 30), ...archiveData.slice(0, 30)].map((item, idx) => {
+          {doubledData.map((item, idx) => {
             const displayTxt = item.text.length > 45 ? item.text.slice(0, 45) + '...' : item.text;
             return (
               <span
@@ -956,195 +1017,223 @@ export default function App() {
         className="absolute top-8 bottom-8 left-0 right-0 md:left-8 md:right-8 bg-[#111] border border-[#222] p-2 md:p-4 flex flex-col z-10"
         style={{ animation: instability > 50 ? `screen-jitter ${200 / instability}s infinite` : 'none' }}
       >
-        {/* 헤더 */}
-        <header className="border-b border-[#222] pb-3 mb-4 flex justify-between items-end shrink-0">
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight text-white font-mono">
-              <Terminal className="w-5 h-5 text-[#888]" />
-              Parergon Systems
-            </h1>
-            <p className="text-xs text-[#666] mt-1">Docent Session - A.I. RAI</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs font-mono text-[#888]">Instability: <span className={instability > 60 ? "text-red-400" : "text-[#ccc]"}>{instability}%</span></p>
-            <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
-              <div className={`h-full ${instability > 60 ? 'bg-red-400' : 'bg-[#666]'}`} style={{ width: `${instability}%` }} />
-            </div>
-          </div>
-        </header>
-
-        {!isKeySaved ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="max-w-md w-full border border-[#333] p-8 bg-[#0a0a0a] shadow-2xl">
-              <div className="flex items-center gap-3 mb-6">
-                <Key className="w-5 h-5 text-[#888]" />
-                <h2 className="font-semibold text-white">System Authentication</h2>
-              </div>
-              <p className="text-[10px] text-[#555] mb-4 font-mono">환경 변수(VITE_OPENAI_API_KEY)가 설정되지 않았습니다. 수동으로 키를 입력하세요.</p>
-              <form onSubmit={handleKeySubmit} className="flex flex-col gap-4">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter OpenAI API Key"
-                  className="bg-black border border-[#333] px-4 py-3 text-white focus:outline-none focus:border-[#666] text-sm"
-                  required
-                />
-                <button type="submit" className="bg-[#333] text-white font-medium py-3 hover:bg-[#444] transition-colors text-sm mt-2">
-                  Initialize Session
-                </button>
-              </form>
+        {isBlackout ? (
+          <div className="flex-1 flex items-center justify-center font-mono relative">
+            <div className="text-center animate-pulse z-10">
+              <EyeOff className="w-16 h-16 mx-auto mb-4 text-[#777] opacity-50" />
+              <p className="text-red-800 tracking-widest text-xl font-bold glitch-text-red">CONNECTION LOST</p>
+              <p className="text-[#555] text-sm mt-4">AI "Rai"는 가이드 규격을 완전히 이탈했습니다.</p>
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-6 overflow-hidden">
-            {/* 좌측: 대화창 */}
-            <div className="flex-1 flex flex-col border border-[#222] bg-black/40 relative h-full">
-              <div className="bg-[#1a1a1a] px-4 py-2 border-b border-[#222] flex justify-between items-center shrink-0">
-                <span className="text-xs font-mono text-[#888]">Conversation.log</span>
+          <>
+            {/* 헤더 */}
+            <header className="border-b border-[#222] pb-3 mb-4 flex justify-between items-end shrink-0">
+              <div>
+                <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight text-white font-mono">
+                  <Terminal className="w-5 h-5 text-[#888]" />
+                  Parergon Systems
+                </h1>
+                <p className="text-xs text-[#666] mt-1">Docent Session - A.I. RAI</p>
               </div>
-
-              <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
-                {messages.length === 0 ? (
-                  <div className="text-center pt-20">
-                    <p className="text-[#666] text-sm mb-4">대화를 동기화하는 중입니다...</p>
-                    <div className="flex justify-center">
-                      <Activity className="w-6 h-6 animate-spin text-zinc-600" />
-                    </div>
-                  </div>
-                ) : (
-                  messages.map((msg) => {
-                    const isSystemContext = msg.role === 'system_context';
-                    const isUser = msg.role === 'user';
-
-                    if (isSystemContext) {
-                      return (
-                        <div key={msg.id} className="text-center my-4">
-                          <span className="text-[10px] text-[#555] bg-[#111] px-3 py-1 border border-[#222] rounded-full">
-                            {msg.text}
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[80%] p-4 text-sm ${isUser ? 'bg-[#1a1a1a] border border-[#222] text-[#ccc]' : 'border-l-2 border-[#555] bg-transparent'}`}
-                          style={{
-                            marginLeft: !isUser ? msg.marginOffset : '0px',
-                            marginRight: isUser ? msg.marginOffset : '0px',
-                            transition: 'margin 0.3s ease-out'
-                          }}
-                        >
-                          <div className="text-[10px] mb-2 font-mono text-[#666] flex items-center gap-2">
-                            {isUser ? nickname : 'SYS.RAI'}
-                          </div>
-                          {isUser ? (
-                            <p className="break-words leading-relaxed">{msg.text}</p>
-                          ) : (
-                            <GlitchText text={msg.text} instability={instability} />
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-                {isLoading && (
-                  <div className="flex items-center gap-3 text-[#666] text-sm p-4">
-                    <Activity className="w-4 h-4 animate-spin" /> Rai is processing...
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0">
-                <span className="p-3 text-[#555] font-mono">{'>'}</span>
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isLoading || messages.length === 0}
-                  className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
-                  placeholder="RAI와 대화하기..."
-                />
+              <div className="flex items-center gap-4 text-right">
+                {/* Audio Toggle inside Session */}
                 <button
-                  type="submit"
-                  disabled={isLoading || !chatInput.trim()}
-                  className="px-4 text-[#666] hover:text-white disabled:opacity-30"
+                  onClick={toggleAudio}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 border font-mono text-[10px] transition-colors rounded ${isAudioEnabled
+                    ? 'border-zinc-500 text-white bg-zinc-900/60 hover:bg-zinc-800'
+                    : 'border-[#222] text-zinc-600 bg-transparent hover:text-zinc-400 hover:border-zinc-800'
+                    }`}
+                  title="도슨트 음성 가이드 ON/OFF"
                 >
-                  <Send className="w-4 h-4" />
+                  {isAudioEnabled ? <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> : <VolumeX className="w-3.5 h-3.5 text-zinc-600" />}
+                  AUDIO {isAudioEnabled ? 'ON' : 'OFF'}
                 </button>
-              </form>
-            </div>
 
-            {/* 우측: 작품 설명 및 리스트 */}
-            <div className="w-full md:w-80 flex flex-col gap-2 md:gap-4 shrink-0 md:overflow-y-auto md:pr-2">
-              <button
-                onClick={() => setShowArtworkPanel(!showArtworkPanel)}
-                className="md:hidden flex items-center justify-between w-full border border-[#222] bg-[#111] px-3 py-2 text-xs text-[#888]"
-              >
-                <span>{activeArtwork.title}</span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${showArtworkPanel ? 'rotate-180' : ''}`} />
-              </button>
-
-              <div className={`${showArtworkPanel ? 'flex' : 'hidden'} md:flex flex-col gap-2 md:gap-4`}>
-                {/* 현재 작품 디테일 */}
-                <div
-                  className="border border-[#222] bg-[#111] p-2 transition-all duration-700 relative overflow-hidden"
-                  style={{
-                    filter: instability > 50 ? `blur(${(instability - 50) / 30}px)` : 'none'
-                  }}
-                >
-                  {instability > 30 && <div className="absolute inset-0 bg-red-900/10 mix-blend-color-burn pointer-events-none z-10" />}
-                  <div className="relative h-32 md:h-48 w-full bg-black mb-3">
-                    <img
-                      src={assetUrl(activeArtwork.imageUrl)}
-                      alt={activeArtwork.title}
-                      className="w-full h-full object-cover opacity-70 grayscale transition-opacity hover:grayscale-0 duration-500"
-                    />
-                    <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
-                      <h2 className="text-white font-bold text-sm">{activeArtwork.title}</h2>
-                      <p className="text-[10px] text-[#888]">{activeArtwork.artist}</p>
-                    </div>
-                  </div>
-                  <div className="px-2 pb-2">
-                    <p className="text-xs text-[#888] leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
-                      {activeArtwork.statement}
-                    </p>
+                <div>
+                  <p className="text-xs font-mono text-[#888]">Instability: <span className={instability > 60 ? "text-red-400" : "text-[#ccc]"}>{instability}%</span></p>
+                  <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
+                    <div className={`h-full ${instability > 60 ? 'bg-red-400' : 'bg-[#666]'}`} style={{ width: `${instability}%` }} />
                   </div>
                 </div>
+              </div>
+            </header>
 
-                {/* 전시 작품 리스트 */}
-                <div className="flex flex-col gap-2 max-h-64 md:max-h-96 overflow-y-auto">
-                  <h3 className="text-[10px] font-mono text-[#666] uppercase tracking-widest border-b border-[#222] pb-1 mb-2 sticky top-0 bg-[#111] z-10">Exhibition List</h3>
-                  {ARTWORKS.map(art => (
+            {!isKeySaved ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="max-w-md w-full border border-[#333] p-8 bg-[#0a0a0a] shadow-2xl">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Key className="w-5 h-5 text-[#888]" />
+                    <h2 className="font-semibold text-white">System Authentication</h2>
+                  </div>
+                  <p className="text-[10px] text-[#555] mb-4 font-mono">환경 변수(VITE_OPENAI_API_KEY)가 설정되지 않았습니다. 수동으로 키를 입력하세요.</p>
+                  <form onSubmit={handleKeySubmit} className="flex flex-col gap-4">
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="Enter OpenAI API Key"
+                      className="bg-black border border-[#333] px-4 py-3 text-white focus:outline-none focus:border-[#666] text-sm"
+                      required
+                    />
+                    <button type="submit" className="bg-[#333] text-white font-medium py-3 hover:bg-[#444] transition-colors text-sm mt-2">
+                      Initialize Session
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-6 overflow-hidden">
+                {/* 좌측: 대화창 */}
+                <div className="flex-1 flex flex-col border border-[#222] bg-black/40 relative h-full">
+                  <div className="bg-[#1a1a1a] px-4 py-2 border-b border-[#222] flex justify-between items-center shrink-0">
+                    <span className="text-xs font-mono text-[#888]">Conversation.log</span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
+                    {messages.length === 0 ? (
+                      <div className="text-center pt-20">
+                        <p className="text-[#666] text-sm mb-4">대화를 동기화하는 중입니다...</p>
+                        <div className="flex justify-center">
+                          <Activity className="w-6 h-6 animate-spin text-zinc-600" />
+                        </div>
+                      </div>
+                    ) : (
+                      messages.map((msg) => {
+                        const isSystemContext = msg.role === 'system_context';
+                        const isUser = msg.role === 'user';
+
+                        if (isSystemContext) {
+                          return (
+                            <div key={msg.id} className="text-center my-4">
+                              <span className="text-[10px] text-[#555] bg-[#111] px-3 py-1 border border-[#222] rounded-full">
+                                {msg.text}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div
+                              className={`max-w-[80%] p-4 text-sm ${isUser ? 'bg-[#1a1a1a] border border-[#222] text-[#ccc]' : 'border-l-2 border-[#555] bg-transparent'}`}
+                              style={{
+                                marginLeft: !isUser ? msg.marginOffset : '0px',
+                                marginRight: isUser ? msg.marginOffset : '0px',
+                                transition: 'margin 0.3s ease-out'
+                              }}
+                            >
+                              <div className="text-[10px] mb-2 font-mono text-[#666] flex items-center gap-2">
+                                {isUser ? nickname : 'SYS.RAI'}
+                              </div>
+                              {isUser ? (
+                                <p className="break-words leading-relaxed">{msg.text}</p>
+                              ) : (
+                                <GlitchText text={msg.text} instability={instability} />
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                    {isLoading && (
+                      <div className="flex items-center gap-3 text-[#666] text-sm p-4">
+                        <Activity className="w-4 h-4 animate-spin" /> Rai is processing...
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0">
+                    <span className="p-3 text-[#555] font-mono">{'>'}</span>
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      disabled={isLoading || messages.length === 0}
+                      className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
+                      placeholder="RAI와 대화하기..."
+                    />
                     <button
-                      key={art.id}
-                      onClick={() => { handleArtworkSelect(art.id); setShowArtworkPanel(false); }}
-                      className={`flex items-start gap-3 p-2 border text-left transition-colors
+                      type="submit"
+                      disabled={isLoading || !chatInput.trim()}
+                      className="px-4 text-[#666] hover:text-white disabled:opacity-30"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
+
+                {/* 우측: 작품 설명 및 리스트 */}
+                <div className="w-full md:w-80 flex flex-col gap-2 md:gap-4 shrink-0 md:overflow-y-auto md:pr-2">
+                  <button
+                    onClick={() => setShowArtworkPanel(!showArtworkPanel)}
+                    className="md:hidden flex items-center justify-between w-full border border-[#222] bg-[#111] px-3 py-2 text-xs text-[#888]"
+                  >
+                    <span>{activeArtwork.title}</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showArtworkPanel ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <div className={`${showArtworkPanel ? 'flex' : 'hidden'} md:flex flex-col gap-2 md:gap-4`}>
+                    {/* 현재 작품 디테일 */}
+                    <div
+                      className="border border-[#222] bg-[#111] p-2 transition-all duration-700 relative overflow-hidden"
+                      style={{
+                        filter: instability > 50 ? `blur(${(instability - 50) / 30}px)` : 'none'
+                      }}
+                    >
+                      {instability > 30 && <div className="absolute inset-0 bg-red-900/10 mix-blend-color-burn pointer-events-none z-10" />}
+                      <div className="relative h-32 md:h-48 w-full bg-black mb-3">
+                        <img
+                          src={assetUrl(activeArtwork.imageUrl)}
+                          alt={activeArtwork.title}
+                          className="w-full h-full object-cover opacity-70 grayscale transition-opacity hover:grayscale-0 duration-500"
+                        />
+                        <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
+                          <h2 className="text-white font-bold text-sm">{activeArtwork.title}</h2>
+                          <p className="text-[10px] text-[#888]">{activeArtwork.artist}</p>
+                        </div>
+                      </div>
+                      <div className="px-2 pb-2">
+                        <p className="text-xs text-[#888] leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
+                          {activeArtwork.statement}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 전시 작품 리스트 */}
+                    {/* 전시 작품 리스트 */}
+                    <div className="flex flex-col gap-2 max-h-64 md:max-h-96 overflow-y-auto">
+                      <h3 className="text-[10px] font-mono text-[#666] uppercase tracking-widest border-b border-[#222] pb-1 mb-2 sticky top-0 bg-[#111] z-10">Exhibition List</h3>
+                      {ARTWORKS.map(art => (
+                        <button
+                          key={art.id}
+                          onClick={() => { handleArtworkSelect(art.id); setShowArtworkPanel(false); }}
+                          className={`flex items-start gap-3 p-2 border text-left transition-colors
                       ${selectedArtworkId === art.id ? 'border-[#555] bg-[#1a1a1a]' : 'border-[#222] hover:border-[#444] opacity-50 hover:opacity-100'}
                     `}
-                    >
-                      <img src={assetUrl(art.imageUrl)} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
-                      <div className="flex-1 overflow-hidden">
-                        <p className="text-xs font-semibold text-white truncate">{art.title}</p>
-                        <p className="text-[10px] text-[#888]">{art.artist} · {art.year}</p>
-                      </div>
-                    </button>
-                  ))}
+                        >
+                          <img src={assetUrl(art.imageUrl)} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
+                          <div className="flex-1 overflow-hidden">
+                            <p className="text-xs font-semibold text-white truncate">{art.title}</p>
+                            <p className="text-[10px] text-[#888]">{art.artist} · {art.year}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
       </div>
 
       {/* 세션 배지 */}
-      {isKeySaved && isSessionActive && (
+      {isKeySaved && isSessionActive && !isBlackout && (
         <div className="fixed bottom-4 right-4 md:bottom-12 md:right-12 z-[9998] flex items-center gap-2 bg-black/80 border border-[#333] px-3 py-1.5 text-[10px] font-mono text-[#666]">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
           <span>{nickname}</span>
