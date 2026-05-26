@@ -144,8 +144,11 @@ const splitIntoSentences = (text) => {
   return parts.length > 0 ? parts : [text];
 };
 
-const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova') => {
-  if (!proxyUrl) return;
+const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova', onReadyToPlay) => {
+  if (!proxyUrl) {
+    if (onReadyToPlay) onReadyToPlay(0);
+    return;
+  }
 
   // 이전 오디오 모두 중단
   activeSources.forEach(s => { try { s.stop(); } catch (e) { } });
@@ -193,6 +196,17 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova') =>
       return fetchTtsChunk(proxyUrl, s, sentenceVoice, sentenceSpeed);
     });
     const audioBuffers = await Promise.all(bufferPromises);
+
+    // 오디오 전체 길이 계산
+    let totalDuration = 0;
+    audioBuffers.forEach(buf => {
+      if (buf) totalDuration += buf.duration;
+    });
+
+    // 재생 준비 완료 콜백 호출 (전체 재생 시간 전달)
+    if (onReadyToPlay) {
+      onReadyToPlay(totalDuration);
+    }
 
     // 순차적으로 재생 스케줄링
     let playTime = audioCtx.currentTime;
@@ -246,6 +260,7 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova') =>
 
   } catch (err) {
     console.warn('TTS playback failed:', err);
+    if (onReadyToPlay) onReadyToPlay(0);
   }
 };
 
@@ -281,6 +296,145 @@ d) 미래에 형성되어 있을 고랑과 이랑(밭/세계)은 어떤 모습�
 
 // public 폴더 에셋 경로 헬퍼 (GitHub Pages base 경로 자동 적용)
 const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.startsWith('/') ? path.slice(1) : path}`;
+
+// --- 글리치 스트리밍 텍스트 컴포넌트 ---
+const StreamingText = ({ text, instability, audioReady, audioDuration, isLatest }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [started, setStarted] = useState(false);
+
+  useEffect(() => {
+    // 만약 최신 메시지가 아니거나, 오디오가 이미 준비되었으면 즉시 시작
+    if (!isLatest || audioReady) {
+      setStarted(true);
+    } else {
+      // 오디오 로딩 지연 대비 4초 폴백
+      const timer = setTimeout(() => {
+        setStarted(true);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [audioReady, isLatest]);
+
+  useEffect(() => {
+    if (!isLatest) {
+      setDisplayedText(text);
+      return;
+    }
+
+    if (!started) return;
+
+    if (displayedText.length >= text.length) return;
+
+    // 글자 스트리밍 속도 계산 (오디오 전체 길이에 비례)
+    const speed = Math.max(10, Math.min(100, audioDuration > 0 ? (audioDuration * 1000) / text.length : 25));
+
+    const interval = setInterval(() => {
+      setDisplayedText(prev => {
+        if (prev.length >= text.length) {
+          clearInterval(interval);
+          return prev;
+        }
+        return text.slice(0, prev.length + 1);
+      });
+    }, speed);
+
+    return () => clearInterval(interval);
+  }, [started, text, audioDuration, isLatest, displayedText.length]);
+
+  // 최신 메시지이며 오디오 준비 중 대기 상태
+  if (isLatest && !started) {
+    return (
+      <div className="flex items-center gap-1.5 py-1">
+        <span className="w-1.5 h-3.5 bg-zinc-500 animate-pulse inline-block" />
+        <span className="text-[10px] text-zinc-600 font-mono">SYS.RAI 오디오 동기화 중...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <GlitchText text={displayedText} instability={instability} />
+      {isLatest && displayedText.length < text.length && (
+        <span className="inline-block w-1.5 h-3.5 bg-zinc-400 ml-1 animate-pulse align-middle" />
+      )}
+    </div>
+  );
+};
+
+// --- JS 기반 Endlessly scrolling Ticker 컴포넌트 ---
+const JSTicker = ({ items, direction }) => {
+  const scrollRef = useRef(null);
+  const posRef = useRef(0);
+  const isHorizontal = direction === 'top' || direction === 'bottom';
+  const speed = isHorizontal ? 0.12 : 0.12; // 1프레임당 이동 픽셀
+
+  useEffect(() => {
+    let animationFrameId;
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    const animate = () => {
+      const maxScroll = isHorizontal ? scrollEl.scrollWidth / 2 : scrollEl.scrollHeight / 2;
+      if (maxScroll > 0) {
+        posRef.current -= speed;
+        if (Math.abs(posRef.current) >= maxScroll) {
+          posRef.current = 0;
+        }
+        if (isHorizontal) {
+          scrollEl.style.transform = `translate3d(${posRef.current}px, 0, 0)`;
+        } else {
+          scrollEl.style.transform = `translate3d(0, ${posRef.current}px, 0)`;
+        }
+      }
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    animationFrameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isHorizontal, speed]);
+
+  const className = `absolute ${direction}-0 bg-[#0a0a0a] border-[#222] z-20 flex items-center overflow-hidden
+    ${isHorizontal ? 'w-full h-8 border-y' : 'h-full w-8 border-x top-0 flex-col hidden md:flex'}
+    ${direction === 'left' ? 'left-0' : direction === 'right' ? 'right-0' : ''}
+  `;
+
+  return (
+    <div className={className}>
+      <div
+        ref={scrollRef}
+        className={`flex ${isHorizontal ? 'flex-row items-center whitespace-nowrap' : 'flex-col items-center'}`}
+        style={{ willChange: 'transform' }}
+      >
+        {/* 첫 번째 세트 */}
+        {items.map((item, idx) => {
+          const displayTxt = item.text.length > 45 ? item.text.slice(0, 45) + '...' : item.text;
+          return (
+            <span
+              key={`first-${item.created_at || idx}-${idx}`}
+              className={`text-[10px] text-[#888] font-mono ${isHorizontal ? 'mx-8' : 'my-8'}`}
+              style={!isHorizontal ? { writingMode: 'vertical-rl', textOrientation: 'mixed' } : {}}
+            >
+              {displayTxt}
+            </span>
+          );
+        })}
+        {/* 두 번째 세트 (Endless Loop용 복제본) */}
+        {items.map((item, idx) => {
+          const displayTxt = item.text.length > 45 ? item.text.slice(0, 45) + '...' : item.text;
+          return (
+            <span
+              key={`second-${item.created_at || idx}-${idx}`}
+              className={`text-[10px] text-[#888] font-mono ${isHorizontal ? 'mx-8' : 'my-8'}`}
+              style={!isHorizontal ? { writingMode: 'vertical-rl', textOrientation: 'mixed' } : {}}
+            >
+              {displayTxt}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const proxyUrl = import.meta.env.VITE_API_PROXY_URL || '';
@@ -380,7 +534,9 @@ export default function App() {
           });
           if (chatsRes.ok) {
             const data = await chatsRes.json();
-            setArchiveData(data.map(item => ({
+            // 최신 글이 오른쪽(끝)에서 등장하여 흘러가도록 배열 순서를 뒤집음 (과거 -> 현재 순)
+            const reversedData = [...data].reverse();
+            setArchiveData(reversedData.map(item => ({
               text: `> ${item.nickname}: ${item.text}`,
               created_at: item.created_at
             })));
@@ -421,7 +577,8 @@ export default function App() {
           const res = await fetch(fetchUrl);
           if (res.ok) {
             const data = await res.json();
-            setArchiveData(data);
+            const reversedData = [...data].reverse();
+            setArchiveData(reversedData);
           }
         }
       } catch (err) {
@@ -637,7 +794,7 @@ export default function App() {
       if (!isContextChange) {
         setChatCount(prev => prev + 1);
         const tickerText = `> ${currentNickname}: ${userText}`;
-        setArchiveData(prev => [{ text: tickerText }, ...prev]);
+        setArchiveData(prev => [...prev, { text: tickerText, created_at: new Date().toISOString() }]);
         persistArchiveEntry(userText, currentNickname);
       }
     }
@@ -687,16 +844,21 @@ export default function App() {
 
       const responseText = data.docent_text;
       const assistantMargin = instability > 40 ? `${Math.floor(Math.random() * (instability / 1.5))}px` : '0px';
+      const msgId = Date.now() + 1;
 
       setMessages(prev => [...prev, {
-        id: Date.now() + 1,
+        id: msgId,
         role: 'assistant',
         text: responseText,
-        marginOffset: assistantMargin
+        marginOffset: assistantMargin,
+        audioReady: !isAudioEnabled, // 오디오 꺼져 있으면 즉시 준비 완료
+        audioDuration: 0
       }]);
 
       if (isAudioEnabled) {
-        speakText(responseText, instability, proxyUrl, currentVoice);
+        speakText(responseText, instability, proxyUrl, currentVoice, (duration) => {
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioReady: true, audioDuration: duration } : m));
+        });
       }
 
     } catch (err) {
@@ -705,7 +867,9 @@ export default function App() {
         id: Date.now() + 2,
         role: 'assistant',
         text: `[시스템 동기화 오류] ${err.message}`,
-        marginOffset: '0px'
+        marginOffset: '0px',
+        audioReady: true,
+        audioDuration: 0
       }]);
     } finally {
       setIsLoading(false);
@@ -974,37 +1138,6 @@ export default function App() {
     return archiveData.filter((_, idx) => idx % 4 === mod).slice(0, 30);
   };
 
-  // 4방향 티커 렌더링
-  const renderTicker = (direction) => {
-    const isHorizontal = direction === 'top' || direction === 'bottom';
-    const className = `absolute ${direction}-0 bg-[#0a0a0a] border-[#222] z-20 flex items-center overflow-hidden
-      ${isHorizontal ? 'w-full h-8 border-y' : 'h-full w-8 border-x top-0 flex-col hidden md:flex'}
-      ${direction === 'left' ? 'left-0' : direction === 'right' ? 'right-0' : ''}
-    `;
-    const innerClass = `ticker-container ${isHorizontal ? 'ticker-x' : 'ticker-y'}`;
-    const directionData = getTickerDataForDirection(direction);
-    const doubledData = [...directionData, ...directionData];
-
-    return (
-      <div className={className}>
-        <div className={innerClass}>
-          {doubledData.map((item, idx) => {
-            const displayTxt = item.text.length > 45 ? item.text.slice(0, 45) + '...' : item.text;
-            return (
-              <span
-                key={idx}
-                className={`text-[10px] text-[#888] font-mono ${isHorizontal ? 'mx-8' : 'my-8 whitespace-nowrap'}`}
-                style={!isHorizontal ? { writingMode: 'vertical-rl', textOrientation: 'mixed' } : {}}
-              >
-                {displayTxt}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="h-screen bg-[#0a0a0a] text-[#e5e5e5] p-2 overflow-hidden relative selection:bg-[#333] selection:text-white">
       <CustomStyles />
@@ -1012,10 +1145,10 @@ export default function App() {
       {instability > 20 && <div className="noise-bg" style={{ opacity: instability / 500 }} />}
 
       {/* 4방향 Marginalia Ticker */}
-      {renderTicker('top')}
-      {renderTicker('bottom')}
-      {renderTicker('left')}
-      {renderTicker('right')}
+      <JSTicker items={getTickerDataForDirection('top')} direction="top" />
+      <JSTicker items={getTickerDataForDirection('bottom')} direction="bottom" />
+      <JSTicker items={getTickerDataForDirection('left')} direction="left" />
+      <JSTicker items={getTickerDataForDirection('right')} direction="right" />
 
       {/* 메인 콘텐츠 영역 */}
       <div
@@ -1104,7 +1237,7 @@ export default function App() {
                         </div>
                       </div>
                     ) : (
-                      messages.map((msg) => {
+                      messages.map((msg, idx) => {
                         const isSystemContext = msg.role === 'system_context';
                         const isUser = msg.role === 'user';
 
@@ -1137,7 +1270,13 @@ export default function App() {
                               {isUser ? (
                                 <p className="break-words leading-relaxed">{msg.text}</p>
                               ) : (
-                                <GlitchText text={msg.text} instability={instability} />
+                                <StreamingText
+                                  text={msg.text}
+                                  instability={instability}
+                                  audioReady={msg.audioReady}
+                                  audioDuration={msg.audioDuration}
+                                  isLatest={idx === messages.length - 1}
+                                />
                               )}
                             </div>
                           </div>
