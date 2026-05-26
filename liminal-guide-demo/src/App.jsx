@@ -489,6 +489,7 @@ export default function App() {
   const [hasTokenWarningShown, setHasTokenWarningShown] = useState(() => {
     return sessionStorage.getItem('miginalia_token_warning_shown') === 'true';
   });
+  const [activeTab, setActiveTab] = useState('chat'); // 모바일 화면용 활성 탭 ('chat' | 'artworks')
 
   useEffect(() => {
     sessionStorage.setItem('miginalia_session_tokens', String(sessionTokens));
@@ -779,6 +780,7 @@ export default function App() {
     // 작품 변경 시 자연스러운 컨텍스트 전환 메시지
     const transitionMsg = `(관객이 <${newArt.title}> 작품을 지목하여 감상을 전개합니다.)`;
     sendMessage(transitionMsg, newArt);
+    setActiveTab('chat'); // 모바일에서 작품 선택 시 대화 탭으로 자동 복귀
   };
 
   const getSystemPrompt = (currentNickname) => {
@@ -971,6 +973,7 @@ export default function App() {
     setThreadId(null);
     setNickname('');
     setIsSessionActive(false);
+    setActiveTab('chat');
     sessionStorage.removeItem('miginalia_messages');
     sessionStorage.removeItem('miginalia_session_active');
     sessionStorage.removeItem('miginalia_nickname');
@@ -988,6 +991,7 @@ export default function App() {
     setThreadId(null);
     setSessionTokens(0);
     setHasTokenWarningShown(false);
+    setActiveTab('chat');
     sessionStorage.clear();
     window.speechSynthesis?.cancel();
     setIsSessionActive(false);
@@ -1245,19 +1249,19 @@ export default function App() {
         ) : (
           <>
             {/* 헤더 */}
-            <header className="border-b border-[#222] pb-3 mb-4 flex justify-between items-end shrink-0">
+            <header className="border-b border-[#222] pb-2 md:pb-3 mb-2 md:mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end shrink-0 gap-2">
               <div>
-                <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight text-white font-mono">
-                  <Terminal className="w-5 h-5 text-[#888]" />
+                <h1 className="text-sm md:text-xl font-bold flex items-center gap-1.5 md:gap-2 tracking-tight text-white font-mono">
+                  <Terminal className="w-4 h-4 md:w-5 md:h-5 text-[#888]" />
                   Parergon Systems
                 </h1>
-                <p className="text-xs text-[#666] mt-1">Docent Session - A.I. RAI</p>
+                <p className="text-[9px] md:text-xs text-[#666] mt-0.5 md:mt-1">Docent Session - A.I. RAI</p>
               </div>
-              <div className="flex items-center gap-4 text-right">
+              <div className="flex items-center gap-2 md:gap-4 text-right w-full sm:w-auto justify-between sm:justify-end shrink-0">
                 {/* Audio Toggle inside Session */}
                 <button
                   onClick={toggleAudio}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 border font-mono text-[10px] transition-colors rounded ${isAudioEnabled
+                  className={`flex items-center gap-1 px-1.5 py-0.5 md:px-2.5 md:py-1 border font-mono text-[9px] md:text-[10px] transition-colors rounded ${isAudioEnabled
                     ? 'border-zinc-500 text-white bg-zinc-900/60 hover:bg-zinc-800'
                     : 'border-[#222] text-zinc-600 bg-transparent hover:text-zinc-400 hover:border-zinc-800'
                     }`}
@@ -1267,16 +1271,16 @@ export default function App() {
                   AUDIO {isAudioEnabled ? 'ON' : 'OFF'}
                 </button>
 
-                <div>
-                  <p className="text-xs font-mono text-[#888]">Session Quota: <span className={sessionTokens > 16000 ? "text-red-500 animate-pulse font-bold" : "text-[#ccc]"}>{sessionTokens} / 20000</span></p>
-                  <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
+                <div className="flex flex-col items-end">
+                  <p className="text-[9px] md:text-xs font-mono text-[#888]">세션 부하: <span className={sessionTokens > 16000 ? "text-red-500 animate-pulse font-bold" : "text-[#ccc]"}>{Math.round((sessionTokens / 20000) * 100)}%</span></p>
+                  <div className="w-16 md:w-24 h-1 bg-[#222] mt-1">
                     <div className={`h-full ${sessionTokens > 16000 ? 'bg-red-500 animate-pulse' : 'bg-[#666]'}`} style={{ width: `${Math.min(100, (sessionTokens / 20000) * 100)}%` }} />
                   </div>
                 </div>
 
-                <div>
-                  <p className="text-xs font-mono text-[#888]">Instability: <span className={instability > 60 ? "text-red-400" : "text-[#ccc]"}>{instability}%</span></p>
-                  <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
+                <div className="flex flex-col items-end">
+                  <p className="text-[9px] md:text-xs font-mono text-[#888]">불안정성: <span className={instability > 60 ? "text-red-400" : "text-[#ccc]"}>{instability}%</span></p>
+                  <div className="w-16 md:w-24 h-1 bg-[#222] mt-1">
                     <div className={`h-full ${instability > 60 ? 'bg-red-400' : 'bg-[#666]'}`} style={{ width: `${instability}%` }} />
                   </div>
                 </div>
@@ -1307,180 +1311,197 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-6 overflow-hidden">
-                {/* 좌측: 대화창 */}
-                <div className="flex-1 flex flex-col border border-[#222] bg-black/40 relative h-full">
-                  <div className="bg-[#1a1a1a] px-4 py-2 border-b border-[#222] flex justify-between items-center shrink-0">
-                    <span className="text-xs font-mono text-[#888]">Conversation.log</span>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
-                    {messages.length === 0 ? (
-                      <div className="text-center pt-20">
-                        <p className="text-[#666] text-sm mb-4">대화를 동기화하는 중입니다...</p>
-                        <div className="flex justify-center">
-                          <Activity className="w-6 h-6 animate-spin text-zinc-600" />
-                        </div>
-                      </div>
-                    ) : (
-                      messages.map((msg, idx) => {
-                        const isSystemContext = msg.role === 'system_context';
-                        const isUser = msg.role === 'user';
-
-                        if (isSystemContext) {
-                          return (
-                            <div key={msg.id} className="text-center my-4">
-                              <span className="text-[10px] text-[#555] bg-[#111] px-3 py-1 border border-[#222] rounded-full">
-                                {msg.text}
-                              </span>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div
-                            key={msg.id}
-                            className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                          >
-                            <div
-                              className={`max-w-[80%] p-4 text-sm ${isUser ? 'bg-[#1a1a1a] border border-[#222] text-[#ccc]' : 'border-l-2 border-[#555] bg-transparent'}`}
-                              style={{
-                                marginLeft: !isUser ? msg.marginOffset : '0px',
-                                marginRight: isUser ? msg.marginOffset : '0px',
-                                transition: 'margin 0.3s ease-out'
-                              }}
-                            >
-                              <div className="text-[10px] mb-2 font-mono text-[#666] flex items-center gap-2">
-                                {isUser ? nickname : 'SYS.RAI'}
-                              </div>
-                              {isUser ? (
-                                <p className="break-words leading-relaxed">{msg.text}</p>
-                              ) : (
-                                <StreamingText
-                                  text={msg.text}
-                                  instability={instability}
-                                  audioReady={msg.audioReady}
-                                  audioDuration={msg.audioDuration}
-                                  isLatest={idx === messages.length - 1}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })
-                    )}
-                    {isLoading && (
-                      <div className="flex items-center gap-3 text-[#666] text-sm p-4">
-                        <Activity className="w-4 h-4 animate-spin" /> RAI is processing...
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-                  {sessionTokens >= 20000 && (
-                    <div className="border-t border-red-950/60 bg-red-950/20 p-3.5 font-mono text-xs text-red-300 space-y-2 shrink-0">
-                      <p className="font-bold flex items-center gap-1.5 text-red-400">
-                        <AlertCircle className="w-4 h-4 text-red-500 animate-pulse" />
-                        SYS.ALERT: SESSION DATA OVERLOAD
-                      </p>
-                      <p className="text-[10px] text-red-400/80 leading-relaxed font-sans">
-                        누적 토큰 사용량이 안전 한도(20000)에 도달하여 데이터 전송이 차단되었습니다. 가이드 시스템과의 동기화를 다시 연결하려면 아래 버튼을 누르십시오.
-                      </p>
-                      <button
-                        onClick={handleSessionSoftReset}
-                        className="px-3 py-1.5 border border-red-900 bg-red-950 text-red-200 hover:bg-red-500 hover:text-white hover:border-white transition-all text-[9px] font-bold rounded"
-                      >
-                        RE-ESTABLISH SESSION (연결 재구성)
-                      </button>
-                    </div>
-                  )}
-
-                  {sessionTokens < 20000 && (
-                    <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0 items-center gap-2">
-                      <span className="p-3 text-[#555] font-mono">{'>'}</span>
-                      <input
-                        type="text"
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        disabled={isLoading || messages.length === 0}
-                        className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
-                        placeholder="RAI와 대화하기..."
-                        maxLength={80}
-                      />
-                      <div className="text-[10px] text-[#444] font-mono select-none">
-                        {chatInput.length}/80
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isLoading || !chatInput.trim()}
-                        className="px-4 text-[#666] hover:text-white disabled:opacity-30"
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-                    </form>
-                  )}
-                </div>
-
-                {/* 우측: 작품 설명 및 리스트 */}
-                <div className="w-full md:w-80 flex flex-col gap-2 md:gap-4 shrink-0 md:overflow-y-auto md:pr-2">
+              <>
+                {/* 모바일 탭 네비게이션 */}
+                <div className="flex border-b border-[#222] md:hidden mb-2 shrink-0 bg-black/40">
                   <button
-                    onClick={() => setShowArtworkPanel(!showArtworkPanel)}
-                    className="md:hidden flex items-center justify-between w-full border border-[#222] bg-[#111] px-3 py-2 text-xs text-[#888]"
+                    onClick={() => setActiveTab('chat')}
+                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${
+                      activeTab === 'chat'
+                        ? 'text-white border-b-2 border-zinc-400 font-bold bg-[#151515]'
+                        : 'text-[#666] hover:text-[#999] bg-transparent'
+                    }`}
                   >
-                    <span>{activeArtwork.title}</span>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${showArtworkPanel ? 'rotate-180' : ''}`} />
+                    CHAT LOG
                   </button>
+                  <button
+                    onClick={() => setActiveTab('artworks')}
+                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${
+                      activeTab === 'artworks'
+                        ? 'text-white border-b-2 border-zinc-400 font-bold bg-[#151515]'
+                        : 'text-[#666] hover:text-[#999] bg-transparent'
+                    }`}
+                  >
+                    ARTWORKS
+                  </button>
+                </div>
 
-                  <div className={`${showArtworkPanel ? 'flex' : 'hidden'} md:flex flex-col gap-2 md:gap-4`}>
-                    {/* 현재 작품 디테일 */}
-                    <div
-                      className="border border-[#222] bg-[#111] p-2 transition-all duration-700 relative overflow-hidden"
-                      style={{
-                        filter: instability > 50 ? `blur(${(instability - 50) / 30}px)` : 'none'
-                      }}
-                    >
-                      {instability > 30 && <div className="absolute inset-0 bg-red-900/10 mix-blend-color-burn pointer-events-none z-10" />}
-                      <div className="relative h-32 md:h-48 w-full bg-black mb-3">
-                        <img
-                          src={assetUrl(activeArtwork.imageUrl)}
-                          alt={activeArtwork.title}
-                          className="w-full h-full object-cover opacity-70 grayscale transition-opacity hover:grayscale-0 duration-500"
-                        />
-                        <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
-                          <h2 className="text-white font-bold text-sm">{activeArtwork.title}</h2>
-                          <p className="text-[10px] text-[#888]">{activeArtwork.artist}</p>
-                        </div>
-                      </div>
-                      <div className="px-2 pb-2">
-                        <p className="text-xs text-[#888] leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
-                          {activeArtwork.statement}
-                        </p>
-                      </div>
+                <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-6 overflow-hidden">
+                  {/* 좌측: 대화창 */}
+                  <div className={`flex-1 flex flex-col border border-[#222] bg-black/40 relative h-full ${activeTab === 'chat' ? 'flex' : 'hidden md:flex'}`}>
+                    <div className="bg-[#1a1a1a] px-4 py-2 border-b border-[#222] flex justify-between items-center shrink-0">
+                      <span className="text-xs font-mono text-[#888]">Conversation.log</span>
                     </div>
 
-                    {/* 전시 작품 리스트 */}
-                    {/* 전시 작품 리스트 */}
-                    <div className="flex flex-col gap-2 max-h-64 md:max-h-96 overflow-y-auto">
-                      <h3 className="text-[10px] font-mono text-[#666] uppercase tracking-widest border-b border-[#222] pb-1 mb-2 sticky top-0 bg-[#111] z-10">Exhibition List</h3>
-                      {ARTWORKS.map(art => (
-                        <button
-                          key={art.id}
-                          onClick={() => { handleArtworkSelect(art.id); setShowArtworkPanel(false); }}
-                          className={`flex items-start gap-3 p-2 border text-left transition-colors
-                      ${selectedArtworkId === art.id ? 'border-[#555] bg-[#1a1a1a]' : 'border-[#222] hover:border-[#444] opacity-50 hover:opacity-100'}
-                    `}
-                        >
-                          <img src={assetUrl(art.imageUrl)} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
-                          <div className="flex-1 overflow-hidden">
-                            <p className="text-xs font-semibold text-white truncate">{art.title}</p>
-                            <p className="text-[10px] text-[#888]">{art.artist} · {art.year}</p>
+                    <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6">
+                      {messages.length === 0 ? (
+                        <div className="text-center pt-20">
+                          <p className="text-[#666] text-sm mb-4">대화를 동기화하는 중입니다...</p>
+                          <div className="flex justify-center">
+                            <Activity className="w-6 h-6 animate-spin text-zinc-600" />
                           </div>
+                        </div>
+                      ) : (
+                        messages.map((msg, idx) => {
+                          const isSystemContext = msg.role === 'system_context';
+                          const isUser = msg.role === 'user';
+
+                          if (isSystemContext) {
+                            return (
+                              <div key={msg.id} className="text-center my-4">
+                                <span className="text-[10px] text-[#555] bg-[#111] px-3 py-1 border border-[#222] rounded-full">
+                                  {msg.text}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[80%] p-4 text-sm ${isUser ? 'bg-[#1a1a1a] border border-[#222] text-[#ccc]' : 'border-l-2 border-[#555] bg-transparent'}`}
+                                style={{
+                                  marginLeft: !isUser ? msg.marginOffset : '0px',
+                                  marginRight: isUser ? msg.marginOffset : '0px',
+                                  transition: 'margin 0.3s ease-out'
+                                }}
+                              >
+                                <div className="text-[10px] mb-2 font-mono text-[#666] flex items-center gap-2">
+                                  {isUser ? nickname : 'SYS.RAI'}
+                                </div>
+                                {isUser ? (
+                                  <p className="break-words leading-relaxed">{msg.text}</p>
+                                ) : (
+                                  <StreamingText
+                                    text={msg.text}
+                                    instability={instability}
+                                    audioReady={msg.audioReady}
+                                    audioDuration={msg.audioDuration}
+                                    isLatest={idx === messages.length - 1}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                      {isLoading && (
+                        <div className="flex items-center gap-3 text-[#666] text-sm p-4">
+                          <Activity className="w-4 h-4 animate-spin" /> RAI is processing...
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+
+                    {sessionTokens >= 20000 && (
+                      <div className="border-t border-red-950/60 bg-red-950/20 p-3.5 font-mono text-xs text-red-300 space-y-2 shrink-0">
+                        <p className="font-bold flex items-center gap-1.5 text-red-400">
+                          <AlertCircle className="w-4 h-4 text-red-500 animate-pulse" />
+                          SYS.ALERT: SESSION DATA OVERLOAD
+                        </p>
+                        <p className="text-[10px] text-red-400/80 leading-relaxed font-sans">
+                          해당 세션의 사용량이 한계에 도달하여 데이터 전송이 차단되었습니다. 가이드 시스템과의 동기화를 다시 연결하려면 아래 버튼을 누르십시오.
+                        </p>
+                        <button
+                          onClick={handleSessionSoftReset}
+                          className="px-3 py-1.5 border border-red-900 bg-red-950 text-red-200 hover:bg-red-500 hover:text-white hover:border-white transition-all text-[9px] font-bold rounded"
+                        >
+                          RE-ESTABLISH SESSION (연결 재구성)
                         </button>
-                      ))}
+                      </div>
+                    )}
+
+                    {sessionTokens < 20000 && (
+                      <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0 items-center gap-2">
+                        <span className="p-3 text-[#555] font-mono">{'>'}</span>
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          disabled={isLoading || messages.length === 0}
+                          className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
+                          placeholder="RAI와 대화하기..."
+                          maxLength={80}
+                        />
+                        <div className="text-[10px] text-[#444] font-mono select-none">
+                          {chatInput.length}/80
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isLoading || !chatInput.trim()}
+                          className="px-4 text-[#666] hover:text-white disabled:opacity-30"
+                        >
+                          <Send className="w-4 h-4" />
+                        </button>
+                      </form>
+                    )}
+                  </div>
+
+                  {/* 우측: 작품 설명 및 리스트 */}
+                  <div className={`w-full md:w-80 flex flex-col gap-2 md:gap-4 shrink-0 md:overflow-y-auto md:pr-2 ${activeTab === 'artworks' ? 'flex' : 'hidden md:flex'}`}>
+                    <div className="flex flex-col gap-2 md:gap-4">
+                      {/* 현재 작품 디테일 */}
+                      <div
+                        className="border border-[#222] bg-[#111] p-2 transition-all duration-700 relative overflow-hidden"
+                        style={{
+                          filter: instability > 50 ? `blur(${(instability - 50) / 30}px)` : 'none'
+                        }}
+                      >
+                        {instability > 30 && <div className="absolute inset-0 bg-red-900/10 mix-blend-color-burn pointer-events-none z-10" />}
+                        <div className="relative h-32 md:h-48 w-full bg-black mb-3">
+                          <img
+                            src={assetUrl(activeArtwork.imageUrl)}
+                            alt={activeArtwork.title}
+                            className="w-full h-full object-cover opacity-70 grayscale transition-opacity hover:grayscale-0 duration-500"
+                          />
+                          <div className="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black to-transparent">
+                            <h2 className="text-white font-bold text-sm">{activeArtwork.title}</h2>
+                            <p className="text-[10px] text-[#888]">{activeArtwork.artist}</p>
+                          </div>
+                        </div>
+                        <div className="px-2 pb-2">
+                          <p className="text-xs text-[#888] leading-relaxed line-clamp-4 hover:line-clamp-none transition-all">
+                            {activeArtwork.statement}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 전시 작품 리스트 */}
+                      <div className="flex flex-col gap-2 max-h-64 md:max-h-96 overflow-y-auto">
+                        <h3 className="text-[10px] font-mono text-[#666] uppercase tracking-widest border-b border-[#222] pb-1 mb-2 sticky top-0 bg-[#111] z-10">Exhibition List</h3>
+                        {ARTWORKS.map(art => (
+                          <button
+                            key={art.id}
+                            onClick={() => { handleArtworkSelect(art.id); }}
+                            className={`flex items-start gap-3 p-2 border text-left transition-colors
+                        ${selectedArtworkId === art.id ? 'border-[#555] bg-[#1a1a1a]' : 'border-[#222] hover:border-[#444] opacity-50 hover:opacity-100'}
+                      `}
+                          >
+                            <img src={assetUrl(art.imageUrl)} className="w-12 h-12 object-cover grayscale brightness-75" alt={art.title} />
+                            <div className="flex-1 overflow-hidden">
+                              <p className="text-xs font-semibold text-white truncate">{art.title}</p>
+                              <p className="text-[10px] text-[#888]">{art.artist} · {art.year}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </>
         )}
