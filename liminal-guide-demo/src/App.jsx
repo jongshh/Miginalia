@@ -259,6 +259,26 @@ const VOICES = [
   { id: 'onyx', name: 'Onyx', desc: '낮고 깊은 무게감이 있는 남성의 음성', gender: 'Male' }
 ];
 
+// 전시 서문
+const EXHIBITION_PREFACE = `전시명 《고랑과 이랑》 (furrow and row)
+
+a) 고랑을 만들면 이랑이 자연스럽게 형성됨.
+b) 한 개의 행동이 연쇄적인 결과를 발생시키는 것에 주목함.
+c) 그 결과의 종합 ~ 밭의 형태 ~ 땅/문명/세계의 형상
+d) 미래에 형성되어 있을 고랑과 이랑(밭/세계)은 어떤 모습일지 생각할 거리 제공.
+
+지금은 경이롭게 편리한 시대다. 세계를 살아내기 위한 인간의 행동, 생각, 이해, 감각, 표현 등 수고로운 안간힘들을 기술이 대신하며 덜어주기 때문이다. 인간은 더 많은 안간힘을 기술에 위탁하고 편리를 누리고 있다. 
+   하지만 기술은 하나의 결과만 가져오지 않는다. 생활과 노동이 편리해진 동시에 일자리 감축 등으로 어떤 존재들을 더 어려운 생활과 노동으로 내몬다. 기후 위기, 핵전쟁처럼 자연을 위태롭게 만들지만 자연이 지닌 한계를 넘어서며 도움을 준다.
+   그렇다면 이 땅에 지금 또 새롭게 나타나는 기술들은 어떤 결과를 불러오는가. 어떤 미래로 흘러가고 있으며, 그곳에서 직면하게 될 것은 무엇인가?
+
+농사에서 흙을 갈며 낮아진 부분을 ‘고랑’, 높아진 부분을 ‘이랑’이라고 부른다. 고랑을 만들면 자연스럽게 이랑이 형성되는 것처럼, 전시 《고랑과 이랑》은 기술의 발전이 누군가와 무언가를 소외하거나 포용하고 때로는 변화시키는 등 여러 층위의 결과를 연쇄적으로 만들어 내는 점에 주목한다.
+
+고랑과 이랑 만들기는 인간의 고전적인 안간힘이며, 세계를 일구는 첫 시작이었다. 현재 안간힘을 위탁받은 기술 그리고 기술에 의한 인간은 새로운 고랑과 이랑을 만들어 내며 또 다른 세계를 일구고 있다. 전시는 이 경이롭게 편리한 시대에서 자라고 있는 복합적인 결과들을 발견하고, 많은 누군가와 무언가가 미래에 모이기 위한 공동의 성찰을 제안한다. 이로써 기술과 인간의 안간힘으로 일구어내는 밭⼀세계는 또 다른 누군가와 무언가가 자라고 살아갈 수 있는 비옥한 땅이길 기대한다.
+
+미래의 그 땅에서 인간은 무엇을 수확하게 될 것인가.
+
+혹은 결국에 아무것도 수확할 수 없게 되는가.`;
+
 // public 폴더 에셋 경로 헬퍼 (GitHub Pages base 경로 자동 적용)
 const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.startsWith('/') ? path.slice(1) : path}`;
 
@@ -299,9 +319,23 @@ export default function App() {
   const [chatCount, setChatCount] = useState(0);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('miginalia_messages');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [chatInput, setChatInput] = useState('');
   const [error, setError] = useState(null);
+
+  // 메시지 세션 저장 (새로고침 방지)
+  useEffect(() => {
+    if (messages.length > 0) {
+      sessionStorage.setItem('miginalia_messages', JSON.stringify(messages));
+    }
+  }, [messages]);
 
   const [showDevControls, setShowDevControls] = useState(false);
   const [selectedArtworkId, setSelectedArtworkId] = useState(ARTWORKS[0].id);
@@ -309,7 +343,6 @@ export default function App() {
   const [showArtworkPanel, setShowArtworkPanel] = useState(false);
 
   // RAG 문서 관리 상태
-  const [showRagPanel, setShowRagPanel] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
@@ -392,6 +425,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isSessionActive, proxyUrl, supabaseUrl, supabaseKey]);
 
+  // 첫 입장 시 또는 새로고침 등으로 메시지가 비었을 때 소개 대화 자동 시작
+  useEffect(() => {
+    if (isSessionActive && messages.length === 0 && nickname) {
+      const enterMsg = `(관객 ${nickname} 님이 전시장에 입장하여 세션을 동기화했습니다. AI 가이드 시스템 '라이(RAI)'와  전시 《고랑과 이랑》에 대해 소개하며 관객을 환영해 주십시오.`;
+      sendMessage(enterMsg, null, nickname, selectedVoice);
+    }
+  }, [isSessionActive, nickname, selectedVoice]);
+
   // Instability 계산 (글로벌 스테이트: 70번 대화 시 최대치)
   const instability = useMemo(() => {
     let maxVal = 33;
@@ -421,12 +462,6 @@ export default function App() {
     sessionStorage.setItem('miginalia_session_active', 'true');
     sessionStorage.setItem('miginalia_nickname', finalName);
     sessionStorage.setItem('miginalia_voice', tempVoice);
-
-    // 첫 세션 접속에 따른 시스템 자동 알림 발송 및 도슨트 최초 Greeting 재생
-    setTimeout(() => {
-      const enterMsg = `(관객 ${finalName} 님이 전시장에 입장하여 세션을 동기화했습니다.)`;
-      sendMessage(enterMsg, null, finalName, tempVoice);
-    }, 100);
   };
 
   // 목소리 샘플 듣기 기능
@@ -584,7 +619,9 @@ export default function App() {
         body: JSON.stringify({
           message: userText || `(관객 ${currentNickname}이 전시 해설 세션을 개시하였습니다.)`,
           threadId: threadId,
-          systemPrompt: `${getSystemPrompt()}\n\n[현재 관람 중인 작품 정보]\n작품명: ${targetArtwork.title}\n작가: ${targetArtwork.artist}\n작품 해설: ${targetArtwork.statement}\n\n위 작품 및 작가 정보와 대화 맥락을 기반으로 답변하세요.`,
+          systemPrompt: userText && userText.includes("전시장에 입장하여")
+            ? `${getSystemPrompt()}\n\n[서비스 안내 특별 지침]\n특정 개별 작품에 국한해 설명하지 마십시오. 대신, 전시의 안내 시스템이자 작품 자체인 AI 도슨트 '라이(RAI)' 본인에 대해 정중하고 도도하게 소개하고, 아래의 전시 서문을 바탕으로 전체 전시 《고랑과 이랑》의 기획 의도와 주제 의식에 대해 정중하고 주관적인 해석을 담아 관객에게 직접 상세히 소개해 주십시오.\n\n[전시 서문]\n${EXHIBITION_PREFACE}`
+            : `${getSystemPrompt()}\n\n[현재 관람 중인 작품 정보]\n작품명: ${targetArtwork.title}\n작가: ${targetArtwork.artist}\n작품 해설: ${targetArtwork.statement}\n\n위 작품 및 작가 정보와 대화 맥락을 기반으로 답변하세요.`,
           temperature: phase === 1 ? 0.35 : (phase === 2 ? 0.65 : 0.95),
         })
       });
@@ -885,15 +922,18 @@ export default function App() {
     return (
       <div className={className}>
         <div className={innerClass}>
-          {[...archiveData.slice(0, 30), ...archiveData.slice(0, 30)].map((item, idx) => (
-            <span
-              key={idx}
-              className={`text-[10px] text-[#888] font-mono ${isHorizontal ? 'mx-8' : 'my-8 whitespace-nowrap'}`}
-              style={!isHorizontal ? { writingMode: 'vertical-rl', textOrientation: 'mixed' } : {}}
-            >
-              {item.text}
-            </span>
-          ))}
+          {[...archiveData.slice(0, 30), ...archiveData.slice(0, 30)].map((item, idx) => {
+            const displayTxt = item.text.length > 45 ? item.text.slice(0, 45) + '...' : item.text;
+            return (
+              <span
+                key={idx}
+                className={`text-[10px] text-[#888] font-mono ${isHorizontal ? 'mx-8' : 'my-8 whitespace-nowrap'}`}
+                style={!isHorizontal ? { writingMode: 'vertical-rl', textOrientation: 'mixed' } : {}}
+              >
+                {displayTxt}
+              </span>
+            );
+          })}
         </div>
       </div>
     );
@@ -1116,15 +1156,6 @@ export default function App() {
       {/* RAG 및 DEV 컨트롤 버튼 */}
       {isSessionActive && (
         <div className="fixed bottom-12 right-12 z-[9999] flex gap-2">
-          {isDevAuthorized && proxyUrl && (
-            <button
-              onClick={() => setShowRagPanel(!showRagPanel)}
-              className="p-2 bg-black border border-[#333] text-[#666] hover:text-white rounded-full opacity-50 hover:opacity-100 hidden md:block"
-              title="RAG Document Manager"
-            >
-              <FileText className="w-4 h-4" />
-            </button>
-          )}
           <button
             onClick={() => setShowDevControls(!showDevControls)}
             className="p-2 bg-black border border-[#333] text-[#666] hover:text-white rounded-full opacity-50 hover:opacity-100 hidden md:block"
@@ -1135,67 +1166,9 @@ export default function App() {
         </div>
       )}
 
-      {/* RAG 문서 관리 패널 */}
-      {showRagPanel && proxyUrl && (
-        <div className="fixed bottom-24 right-20 z-[9999] bg-black border border-[#444] p-5 w-80 shadow-2xl rounded text-xs font-mono">
-          <h3 className="text-sm font-bold border-b border-[#333] pb-2 mb-3 text-white flex items-center gap-2">
-            <FileText className="w-4 h-4 text-zinc-400" />
-            RAG DOCUMENT MANAGER
-          </h3>
-
-          <div className="space-y-4">
-            <div className="bg-[#0c0c0c] p-2.5 border border-[#222] text-zinc-500 leading-normal rounded">
-              교수님의 작품 해설 PDF 자료 등을 AI 데이터셋에 자동으로 업데이트합니다. (OpenAI Vector Store 업로드)
-            </div>
-
-            {/* 어시스턴트 생성 셋업 */}
-            <div className="space-y-2 border-t border-[#222] pt-3">
-              <span className="text-zinc-400 block font-bold">1단계: RAG 가이드 셋업</span>
-              <p className="text-[10px] text-zinc-600">처음 사용하는 경우 아래 버튼을 눌러 Vector Store 및 Assistant를 원클릭 생성하십시오.</p>
-              <button
-                onClick={handleSetupAssistant}
-                className="w-full bg-[#161616] text-zinc-300 border border-zinc-800 hover:bg-zinc-800 py-1.5 transition-colors rounded"
-              >
-                어시스턴트 자동 개설
-              </button>
-              {setupStatus && (
-                <pre className="text-[9px] bg-black border border-[#222] p-2 mt-1 whitespace-pre-wrap text-zinc-400 max-h-32 overflow-y-auto">
-                  {setupStatus}
-                </pre>
-              )}
-            </div>
-
-            {/* 파일 업로드 폼 */}
-            <form onSubmit={handleDocumentUpload} className="space-y-2 border-t border-[#222] pt-3">
-              <span className="text-zinc-400 block font-bold">2단계: PDF / Text 문서 업로드</span>
-              <p className="text-[10px] text-zinc-600">Vector Store 환경 변수가 등록된 후 문서를 업로드해 동기화할 수 있습니다.</p>
-              <input
-                type="file"
-                accept=".pdf,.txt,.docx,.md"
-                onChange={(e) => setUploadFile(e.target.files[0])}
-                className="w-full bg-[#0a0a0a] border border-[#222] text-zinc-400 p-1 cursor-pointer text-[10px]"
-              />
-              <button
-                type="submit"
-                disabled={!uploadFile || uploading}
-                className="w-full bg-zinc-300 text-black font-bold hover:bg-white py-2 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-30 rounded"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                {uploading ? '동기화 진행 중...' : 'OpenAI Vector Store 전송'}
-              </button>
-              {uploadStatus && (
-                <div className="text-[9px] bg-black border border-[#222] p-2 mt-1 text-zinc-400 whitespace-pre-wrap leading-tight">
-                  {uploadStatus}
-                </div>
-              )}
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* DEV CONTROLS 패널 */}
       {showDevControls && (
-        <div className="fixed bottom-24 right-12 z-[9999] bg-black border border-[#444] p-5 w-72 shadow-2xl rounded text-xs font-mono">
+        <div className="fixed bottom-24 right-12 z-[9999] bg-black border border-[#444] p-5 w-80 shadow-2xl rounded text-xs font-mono max-h-[80vh] overflow-y-auto">
           <h3 className="text-sm font-bold border-b border-[#333] pb-2 mb-4 text-white flex items-center justify-between">
             <span className="flex items-center gap-2">
               <Settings className="w-4 h-4 text-zinc-400" />
@@ -1206,7 +1179,6 @@ export default function App() {
                 onClick={() => {
                   setIsDevAuthorized(false);
                   sessionStorage.removeItem('miginalia_dev_auth');
-                  setShowRagPanel(false);
                 }}
                 className="text-[9px] px-1.5 py-0.5 border border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-zinc-300 rounded"
               >
@@ -1292,12 +1264,63 @@ export default function App() {
                 </p>
               </div>
 
-              <button
-                onClick={handleHardReset}
-                className="w-full mt-4 border border-[#500] text-[#f55] hover:bg-[#500] hover:text-white py-2 transition-colors font-bold rounded"
-              >
-                SYSTEM HARD RESET
-              </button>
+              {proxyUrl && (
+                <div className="border-t border-[#333] pt-4 space-y-4">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-zinc-400" />
+                    RAG DOCUMENT MANAGER
+                  </span>
+
+                  {/* 어시스턴트 생성 셋업 */}
+                  <div className="space-y-1.5">
+                    <p className="text-[9px] text-zinc-500">1단계: Vector Store & Assistant 생성</p>
+                    <button
+                      onClick={handleSetupAssistant}
+                      className="w-full bg-[#161616] text-zinc-300 border border-zinc-800 hover:bg-zinc-800 py-1 transition-colors text-[10px] rounded"
+                    >
+                      어시스턴트 자동 개설
+                    </button>
+                    {setupStatus && (
+                      <pre className="text-[9px] bg-black border border-[#222] p-2 mt-1 whitespace-pre-wrap text-zinc-400 max-h-24 overflow-y-auto">
+                        {setupStatus}
+                      </pre>
+                    )}
+                  </div>
+
+                  {/* 파일 업로드 폼 */}
+                  <form onSubmit={handleDocumentUpload} className="space-y-1.5">
+                    <p className="text-[9px] text-zinc-500">2단계: PDF / Text 문서 업로드</p>
+                    <input
+                      type="file"
+                      accept=".pdf,.txt,.docx,.md"
+                      onChange={(e) => setUploadFile(e.target.files[0])}
+                      className="w-full bg-[#0a0a0a] border border-[#222] text-zinc-400 p-1 cursor-pointer text-[9px]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!uploadFile || uploading}
+                      className="w-full bg-zinc-300 text-black font-bold hover:bg-white py-1.5 transition-colors flex items-center justify-center gap-1 disabled:opacity-30 text-[10px] rounded"
+                    >
+                      <Upload className="w-3 h-3" />
+                      {uploading ? '전송 중...' : 'Vector Store 전송'}
+                    </button>
+                    {uploadStatus && (
+                      <div className="text-[9px] bg-black border border-[#222] p-2 mt-1 text-zinc-400 whitespace-pre-wrap leading-tight max-h-24 overflow-y-auto">
+                        {uploadStatus}
+                      </div>
+                    )}
+                  </form>
+                </div>
+              )}
+
+              <div className="border-t border-[#333] pt-4">
+                <button
+                  onClick={handleHardReset}
+                  className="w-full border border-[#500] text-[#f55] hover:bg-[#500] hover:text-white py-2 transition-colors font-bold rounded text-[10px]"
+                >
+                  SYSTEM HARD RESET
+                </button>
+              </div>
             </div>
           )}
         </div>
