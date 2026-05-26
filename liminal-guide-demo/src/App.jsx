@@ -481,6 +481,23 @@ export default function App() {
     return saved !== null ? saved === 'true' : true;
   });
 
+  // 세션 토큰 사용량 제어 상태 (과청구 방지용 글자수/토큰 제한)
+  const [sessionTokens, setSessionTokens] = useState(() => {
+    const saved = sessionStorage.getItem('miginalia_session_tokens');
+    return saved ? parseInt(saved) : 0;
+  });
+  const [hasTokenWarningShown, setHasTokenWarningShown] = useState(() => {
+    return sessionStorage.getItem('miginalia_token_warning_shown') === 'true';
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem('miginalia_session_tokens', String(sessionTokens));
+  }, [sessionTokens]);
+
+  useEffect(() => {
+    sessionStorage.setItem('miginalia_token_warning_shown', String(hasTokenWarningShown));
+  }, [hasTokenWarningShown]);
+
   // 개발자(어드민) 인증 상태
   const [isDevAuthorized, setIsDevAuthorized] = useState(() => {
     return sessionStorage.getItem('miginalia_dev_auth') === 'true';
@@ -789,6 +806,7 @@ export default function App() {
 
   const sendMessage = async (userText = null, overrideArtwork = null, customNickname = null, customVoice = null) => {
     if (instability >= 100) return;
+    if (sessionTokens >= 20000) return; // 세션 데이터 전송량 초과 시 호출 제한
 
     setIsLoading(true);
     setError(null);
@@ -866,14 +884,36 @@ export default function App() {
       const assistantMargin = instability > 40 ? `${Math.floor(Math.random() * (instability / 1.5))}px` : '0px';
       const msgId = Date.now() + 1;
 
-      setMessages(prev => [...prev, {
-        id: msgId,
-        role: 'assistant',
-        text: responseText,
-        marginOffset: assistantMargin,
-        audioReady: !isAudioEnabled, // 오디오 꺼져 있으면 즉시 준비 완료
-        audioDuration: 0
-      }]);
+      // 한국어 기준 1글자당 약 1.5~1.8 토큰 정도로 가산하여 계산
+      const userLen = userText ? userText.length : 0;
+      const assistantLen = responseText ? responseText.length : 0;
+      const tokensUsed = Math.ceil((userLen + assistantLen) * 1.6);
+      const newTokens = sessionTokens + tokensUsed;
+      setSessionTokens(newTokens);
+
+      setMessages(prev => {
+        const updated = [...prev, {
+          id: msgId,
+          role: 'assistant',
+          text: responseText,
+          marginOffset: assistantMargin,
+          audioReady: !isAudioEnabled, // 오디오 꺼져 있으면 즉시 준비 완료
+          audioDuration: 0
+        }];
+
+        // 70% (14000토큰) 초과 시 경고 메세지 주입
+        if (newTokens >= 14000 && newTokens < 20000 && !hasTokenWarningShown) {
+          setHasTokenWarningShown(true);
+          sessionStorage.setItem('miginalia_token_warning_shown', 'true');
+          updated.push({
+            id: Date.now() + 99,
+            role: 'system_context',
+            text: `(경고: 데이터 전송량 임계치 초과 - 세션 유지율 ${Math.round((1 - newTokens / 20000) * 100)}%)`,
+            marginOffset: '0px'
+          });
+        }
+        return updated;
+      });
 
       if (isAudioEnabled) {
         speakText(responseText, instability, proxyUrl, currentVoice, (duration) => {
@@ -923,12 +963,31 @@ export default function App() {
     }
   };
 
+  // 세션 소프트 리셋 (토큰 임계치 초과 시 복구용)
+  const handleSessionSoftReset = () => {
+    setSessionTokens(0);
+    setHasTokenWarningShown(false);
+    setMessages([]);
+    setThreadId(null);
+    setNickname('');
+    setIsSessionActive(false);
+    sessionStorage.removeItem('miginalia_messages');
+    sessionStorage.removeItem('miginalia_session_active');
+    sessionStorage.removeItem('miginalia_nickname');
+    sessionStorage.removeItem('miginalia_thread_id');
+    sessionStorage.removeItem('miginalia_session_tokens');
+    sessionStorage.removeItem('miginalia_token_warning_shown');
+    window.speechSynthesis?.cancel();
+  };
+
   // 시스템 하드 리셋 (어드민용 - 로컬 세션 클리어 및 DB 내용 전면 삭제)
   const handleHardReset = async () => {
     setPhase(1);
     setChatCount(0);
     setMessages([]);
     setThreadId(null);
+    setSessionTokens(0);
+    setHasTokenWarningShown(false);
     sessionStorage.clear();
     window.speechSynthesis?.cancel();
     setIsSessionActive(false);
@@ -1209,6 +1268,13 @@ export default function App() {
                 </button>
 
                 <div>
+                  <p className="text-xs font-mono text-[#888]">Session Quota: <span className={sessionTokens > 16000 ? "text-red-500 animate-pulse font-bold" : "text-[#ccc]"}>{sessionTokens} / 20000</span></p>
+                  <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
+                    <div className={`h-full ${sessionTokens > 16000 ? 'bg-red-500 animate-pulse' : 'bg-[#666]'}`} style={{ width: `${Math.min(100, (sessionTokens / 20000) * 100)}%` }} />
+                  </div>
+                </div>
+
+                <div>
                   <p className="text-xs font-mono text-[#888]">Instability: <span className={instability > 60 ? "text-red-400" : "text-[#ccc]"}>{instability}%</span></p>
                   <div className="w-24 h-1 bg-[#222] mt-1 ml-auto">
                     <div className={`h-full ${instability > 60 ? 'bg-red-400' : 'bg-[#666]'}`} style={{ width: `${instability}%` }} />
@@ -1311,24 +1377,48 @@ export default function App() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0">
-                    <span className="p-3 text-[#555] font-mono">{'>'}</span>
-                    <input
-                      type="text"
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      disabled={isLoading || messages.length === 0}
-                      className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
-                      placeholder="RAI와 대화하기..."
-                    />
-                    <button
-                      type="submit"
-                      disabled={isLoading || !chatInput.trim()}
-                      className="px-4 text-[#666] hover:text-white disabled:opacity-30"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </form>
+                  {sessionTokens >= 20000 && (
+                    <div className="border-t border-red-950/60 bg-red-950/20 p-3.5 font-mono text-xs text-red-300 space-y-2 shrink-0">
+                      <p className="font-bold flex items-center gap-1.5 text-red-400">
+                        <AlertCircle className="w-4 h-4 text-red-500 animate-pulse" />
+                        SYS.ALERT: SESSION DATA OVERLOAD
+                      </p>
+                      <p className="text-[10px] text-red-400/80 leading-relaxed font-sans">
+                        누적 토큰 사용량이 안전 한도(20000)에 도달하여 데이터 전송이 차단되었습니다. 가이드 시스템과의 동기화를 다시 연결하려면 아래 버튼을 누르십시오.
+                      </p>
+                      <button
+                        onClick={handleSessionSoftReset}
+                        className="px-3 py-1.5 border border-red-900 bg-red-950 text-red-200 hover:bg-red-500 hover:text-white hover:border-white transition-all text-[9px] font-bold rounded"
+                      >
+                        RE-ESTABLISH SESSION (연결 재구성)
+                      </button>
+                    </div>
+                  )}
+
+                  {sessionTokens < 20000 && (
+                    <form onSubmit={handleChatSubmit} className="border-t border-[#222] p-3 flex bg-[#111] shrink-0 items-center gap-2">
+                      <span className="p-3 text-[#555] font-mono">{'>'}</span>
+                      <input
+                        type="text"
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        disabled={isLoading || messages.length === 0}
+                        className="flex-1 bg-transparent border-none text-[#e5e5e5] focus:outline-none focus:ring-0 placeholder-[#444] text-sm"
+                        placeholder="RAI와 대화하기..."
+                        maxLength={80}
+                      />
+                      <div className="text-[10px] text-[#444] font-mono select-none">
+                        {chatInput.length}/80
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isLoading || !chatInput.trim()}
+                        className="px-4 text-[#666] hover:text-white disabled:opacity-30"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </form>
+                  )}
                 </div>
 
                 {/* 우측: 작품 설명 및 리스트 */}
