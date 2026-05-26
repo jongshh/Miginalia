@@ -373,13 +373,33 @@ const JSTicker = ({ items, direction }) => {
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
 
+    // 시계 방향 흐름 설정:
+    // - top: 왼쪽 -> 오른쪽 (값 증가, -maxScroll -> 0)
+    // - right: 위 -> 아래 (값 증가, -maxScroll -> 0)
+    // - bottom: 오른쪽 -> 왼쪽 (값 감소, 0 -> -maxScroll)
+    // - left: 아래 -> 위 (값 감소, 0 -> -maxScroll)
+    const isScrollPositive = direction === 'top' || direction === 'right';
+
     const animate = () => {
       const maxScroll = isHorizontal ? scrollEl.scrollWidth / 2 : scrollEl.scrollHeight / 2;
       if (maxScroll > 0) {
-        posRef.current -= speed;
-        if (Math.abs(posRef.current) >= maxScroll) {
-          posRef.current = 0;
+        // 정방향(오른쪽/아래)으로 흐를 때 초기값이 0이면 -maxScroll로 초기화
+        if (isScrollPositive && posRef.current === 0) {
+          posRef.current = -maxScroll;
         }
+
+        if (isScrollPositive) {
+          posRef.current += speed;
+          if (posRef.current >= 0) {
+            posRef.current = -maxScroll;
+          }
+        } else {
+          posRef.current -= speed;
+          if (Math.abs(posRef.current) >= maxScroll) {
+            posRef.current = 0;
+          }
+        }
+
         if (isHorizontal) {
           scrollEl.style.transform = `translate3d(${posRef.current}px, 0, 0)`;
         } else {
@@ -391,7 +411,7 @@ const JSTicker = ({ items, direction }) => {
 
     animationFrameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [isHorizontal, speed]);
+  }, [isHorizontal, speed, direction]);
 
   const className = `absolute ${direction}-0 bg-[#0a0a0a] border-[#222] z-20 flex items-center overflow-hidden
     ${isHorizontal ? 'w-full h-8 border-y' : 'h-full w-8 border-x top-0 flex-col hidden md:flex'}
