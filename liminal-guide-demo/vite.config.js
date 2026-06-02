@@ -12,7 +12,7 @@ function archivePersistPlugin() {
       // POST /api/archive - 새로운 아카이브 항목 추가
       server.middlewares.use('/api/archive', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        
+
         let body = ''
         req.on('data', chunk => { body += chunk })
         req.on('end', () => {
@@ -54,5 +54,5 @@ export default defineConfig({
     tailwindcss(),
     archivePersistPlugin(),
   ],
-  base: '/Liminal_Guide_Web/',
+  base: '/miginalia/',
 })
