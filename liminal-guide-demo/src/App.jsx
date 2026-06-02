@@ -414,7 +414,7 @@ const JSTicker = ({ items, direction }) => {
   }, [isHorizontal, speed, direction]);
 
   const className = `absolute ${direction}-0 bg-[#0a0a0a] border-[#222] z-20 flex items-center overflow-hidden
-    ${isHorizontal ? 'w-full h-8 border-y' : 'h-full w-8 border-x top-0 flex-col hidden md:flex'}
+    ${isHorizontal ? 'w-full h-8 border-y' : 'h-full w-8 border-x top-0 flex-col flex'}
     ${direction === 'left' ? 'left-0' : direction === 'right' ? 'right-0' : ''}
   `;
 
@@ -1235,7 +1235,7 @@ export default function App() {
 
       {/* 메인 콘텐츠 영역 */}
       <div
-        className="absolute top-8 bottom-8 left-0 right-0 md:left-8 md:right-8 bg-[#111] border border-[#222] p-2 md:p-4 flex flex-col z-10"
+        className="absolute top-8 bottom-8 left-8 right-8 bg-[#111] border border-[#222] p-2 md:p-4 flex flex-col z-10"
         style={{ animation: instability > 50 ? `screen-jitter ${200 / instability}s infinite` : 'none' }}
       >
         {isBlackout ? (
