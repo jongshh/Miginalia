@@ -746,7 +746,7 @@ export default function App() {
         const res = await fetch(`${supabaseUrl}/rest/v1/visitor_chats`, {
           method: 'POST',
           headers: {
-            'apikey': supabaseKey,
+            'apikey': supabaseKey, // why not work??
             'Authorization': `Bearer ${supabaseKey}`,
             'Content-Type': 'application/json',
             'Prefer': 'return=representation'
@@ -1316,21 +1316,19 @@ export default function App() {
                 <div className="flex border-b border-[#222] md:hidden mb-2 shrink-0 bg-black/40">
                   <button
                     onClick={() => setActiveTab('chat')}
-                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${
-                      activeTab === 'chat'
+                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${activeTab === 'chat'
                         ? 'text-white border-b-2 border-zinc-400 font-bold bg-[#151515]'
                         : 'text-[#666] hover:text-[#999] bg-transparent'
-                    }`}
+                      }`}
                   >
                     CHAT LOG
                   </button>
                   <button
                     onClick={() => setActiveTab('artworks')}
-                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${
-                      activeTab === 'artworks'
+                    className={`flex-1 py-2 text-center font-mono text-xs transition-colors ${activeTab === 'artworks'
                         ? 'text-white border-b-2 border-zinc-400 font-bold bg-[#151515]'
                         : 'text-[#666] hover:text-[#999] bg-transparent'
-                    }`}
+                      }`}
                   >
                     ARTWORKS
                   </button>
