@@ -162,6 +162,7 @@ export default {
           const parsedContent = JSON.parse(chatData.choices[0].message.content);
           return new Response(JSON.stringify({
             docent_text: parsedContent.docent_text,
+            switch_to_artwork_id: parsedContent.switch_to_artwork_id || null,
             isFallback: true
           }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
@@ -195,13 +196,13 @@ export default {
         });
         if (!msgRes.ok) throw new Error(`Message creation failed: ${await msgRes.text()}`);
 
-        // 3) Run 실행 (System Prompt를 추가 지시사항으로 덮어씀)
+        // 3) Run 실행 (System Prompt로 어시스턴트 지침을 완전히 덮어씀)
         const runRes = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
             assistant_id: assistantId,
-            additional_instructions: systemPrompt,
+            instructions: systemPrompt,
             response_format: { type: 'json_object' }
           })
         });
@@ -242,6 +243,7 @@ export default {
 
         return new Response(JSON.stringify({
           docent_text: parsedContent.docent_text,
+          switch_to_artwork_id: parsedContent.switch_to_artwork_id || null,
           threadId: threadId,
           isFallback: false
         }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
