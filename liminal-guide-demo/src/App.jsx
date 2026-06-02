@@ -1074,7 +1074,7 @@ export default function App() {
   // 닉네임 / 목소리 설정 게이트 화면
   if (!isSessionActive) {
     return (
-      <div className="min-h-screen bg-[#030303] text-[#e5e5e5] flex items-center justify-center font-mono relative p-4 selection:bg-[#333] selection:text-white">
+      <div className="h-dvh w-full overflow-y-auto bg-[#030303] text-[#e5e5e5] flex items-center justify-center font-mono relative p-4 selection:bg-[#333] selection:text-white">
         <CustomStyles />
         <div className="crt-overlay" />
         <div className="noise-bg" style={{ opacity: 0.04 }} />
@@ -1222,7 +1222,7 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen bg-[#0a0a0a] text-[#e5e5e5] p-2 overflow-hidden relative selection:bg-[#333] selection:text-white">
+    <div className="h-dvh bg-[#0a0a0a] text-[#e5e5e5] p-2 overflow-hidden relative selection:bg-[#333] selection:text-white">
       <CustomStyles />
       <div className="crt-overlay" />
       {instability > 20 && <div className="noise-bg" style={{ opacity: instability / 500 }} />}
@@ -1336,7 +1336,7 @@ export default function App() {
 
                 <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-6 overflow-hidden">
                   {/* 좌측: 대화창 */}
-                  <div className={`flex-1 flex flex-col border border-[#222] bg-black/40 relative h-full ${activeTab === 'chat' ? 'flex' : 'hidden md:flex'}`}>
+                  <div className={`flex-1 min-h-0 flex flex-col border border-[#222] bg-black/40 relative ${activeTab === 'chat' ? 'flex' : 'hidden md:flex'}`}>
                     <div className="bg-[#1a1a1a] px-4 py-2 border-b border-[#222] flex justify-between items-center shrink-0">
                       <span className="text-xs font-mono text-[#888]">Conversation.log</span>
                     </div>
@@ -1449,7 +1449,7 @@ export default function App() {
                   </div>
 
                   {/* 우측: 작품 설명 및 리스트 */}
-                  <div className={`w-full md:w-80 flex flex-col gap-2 md:gap-4 shrink-0 md:overflow-y-auto md:pr-2 ${activeTab === 'artworks' ? 'flex' : 'hidden md:flex'}`}>
+                  <div className={`w-full md:w-80 flex flex-col gap-2 md:gap-4 flex-1 md:flex-none min-h-0 overflow-y-auto pr-2 ${activeTab === 'artworks' ? 'flex' : 'hidden md:flex'}`}>
                     <div className="flex flex-col gap-2 md:gap-4">
                       {/* 현재 작품 디테일 */}
                       <div
