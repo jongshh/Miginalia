@@ -54,5 +54,5 @@ export default defineConfig({
     tailwindcss(),
     archivePersistPlugin(),
   ],
-  base: '/miginalia/',
+  base: '/Miginalia/',
 })
