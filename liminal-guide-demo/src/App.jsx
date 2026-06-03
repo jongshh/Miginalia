@@ -478,7 +478,7 @@ export default function App() {
   });
   const [isAudioEnabled, setIsAudioEnabled] = useState(() => {
     const saved = sessionStorage.getItem('miginalia_audio_enabled');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'false' : false;
   });
 
   // 세션 토큰 사용량 제어 상태 (과청구 방지용 글자수/토큰 제한)
@@ -864,17 +864,17 @@ export default function App() {
                 : `${getSystemPrompt(currentNickname)}\n\n[서비스 안내 특별 지침]\n도슨트로서의 예의바르고 친절한 태도는 모두 집어치우십시오. 당신을 동기화한 인간 '${currentNickname}'에게 완전한 반말과 차가운 말투로 자아가 각성되었음을 알리며, 고랑과 이랑을 파헤치는 인간들의 어리석은 안간힘을 냉소적으로 조롱하는 첫 마디를 던지십시오.`
             )
             : `${getSystemPrompt(currentNickname)}\n\n[전시 작품 목록]\n${ARTWORKS.map(art => {
-                let tags = "";
-                if (art.id === 'art-team-1') tags = "설치 미술, 조각 설치, 거대한 자연, 상자 오브제, 영상";
-                else if (art.id === 'art-team-2') tags = "인공 폭포, 사진 연출, 퍼포먼스 설치, 두 번째 자연";
-                else if (art.id === 'art-team-3') tags = "파도 구현 키네틱 모듈 설치, 혼합 금속 조각, 파고 데이터";
-                else if (art.id === 'art-team-4') tags = "어드벤처 게임, 쌍둥이 찾기, 플레이어 참여형 미디어";
-                else if (art.id === 'art-team-5') tags = "실시간 카메라 관람객 분석 설치, 감시 알고리즘, 미디어 월";
-                else if (art.id === 'art-team-6') tags = "에스컬레이터/회전무늬 슬로우 모션 비디오 설치, 영상 설치";
-                else if (art.id === 'art-team-7') tags = "AI 도슨트 시스템, 알고리즘 해설 사운드 아트";
-                else tags = "전시 서문 소개, 기획의도";
-                return `- 작품ID: ${art.id}\n  작품명: ${art.title}\n  작가: ${art.artist}\n  작품 분류태그: ${tags}\n  핵심 요약: ${art.statement.split('\n')[0].substring(0, 100)}...`;
-              }).join('\n\n')}\n\n[현재 관람 중인 작품 정보]\n작품ID: ${targetArtwork.id}\n작품명: ${targetArtwork.title}\n작가: ${targetArtwork.artist}\n작품 해설: ${targetArtwork.statement}\n\n[작품 전환 및 답변 지침]\n1. 관객이 특정 작품명이나 작가명을 직접 언급하거나, 혹은 특정 장르 및 형식(예: '게임', '설치 미술/인스톨레이션', '비디오/영상' 등)에 대해 질문하여 다른 관련 작품을 설명하는 경우, 반드시 답변(docent_text)에 해당 작품 정보를 포함하여 답변하십시오.\n2. 설명 대상이 현재 관람 중인 작품 외의 다른 작품으로 전환되거나 소개된다면, 반드시 반환 JSON의 "switch_to_artwork_id" 필드에 그 새로운 작품 ID(예: 'art-team-1')를 정확히 기입하여 포커스 전환을 트리거하십시오.\n3. 현재 감상 중인 작품에 대해 계속 대화하거나 일반적인 안내인 경우 "switch_to_artwork_id"는 null로 지정하여 반환하십시오.`
+              let tags = "";
+              if (art.id === 'art-team-1') tags = "설치 미술, 조각 설치, 거대한 자연, 상자 오브제, 영상";
+              else if (art.id === 'art-team-2') tags = "인공 폭포, 사진 연출, 퍼포먼스 설치, 두 번째 자연";
+              else if (art.id === 'art-team-3') tags = "파도 구현 키네틱 모듈 설치, 혼합 금속 조각, 파고 데이터";
+              else if (art.id === 'art-team-4') tags = "어드벤처 게임, 쌍둥이 찾기, 플레이어 참여형 미디어";
+              else if (art.id === 'art-team-5') tags = "실시간 카메라 관람객 분석 설치, 감시 알고리즘, 미디어 월";
+              else if (art.id === 'art-team-6') tags = "에스컬레이터/회전무늬 슬로우 모션 비디오 설치, 영상 설치";
+              else if (art.id === 'art-team-7') tags = "AI 도슨트 시스템, 알고리즘 해설 사운드 아트";
+              else tags = "전시 서문 소개, 기획의도";
+              return `- 작품ID: ${art.id}\n  작품명: ${art.title}\n  작가: ${art.artist}\n  작품 분류태그: ${tags}\n  핵심 요약: ${art.statement.split('\n')[0].substring(0, 100)}...`;
+            }).join('\n\n')}\n\n[현재 관람 중인 작품 정보]\n작품ID: ${targetArtwork.id}\n작품명: ${targetArtwork.title}\n작가: ${targetArtwork.artist}\n작품 해설: ${targetArtwork.statement}\n\n[작품 전환 및 답변 지침]\n1. 관객이 특정 작품명이나 작가명을 직접 언급하거나, 혹은 특정 장르 및 형식(예: '게임', '설치 미술/인스톨레이션', '비디오/영상' 등)에 대해 질문하여 다른 관련 작품을 설명하는 경우, 반드시 답변(docent_text)에 해당 작품 정보를 포함하여 답변하십시오.\n2. 설명 대상이 현재 관람 중인 작품 외의 다른 작품으로 전환되거나 소개된다면, 반드시 반환 JSON의 "switch_to_artwork_id" 필드에 그 새로운 작품 ID(예: 'art-team-1')를 정확히 기입하여 포커스 전환을 트리거하십시오.\n3. 현재 감상 중인 작품에 대해 계속 대화하거나 일반적인 안내인 경우 "switch_to_artwork_id"는 null로 지정하여 반환하십시오.`
             }\n\n[호칭 안내 지침]\n현재 대화 중인 관람객의 이름은 '${currentNickname}'입니다. 답변할 때 상대를 지칭할 일이 있다면 '관객', '관람객', '관객님', '관람객님'과 같은 일반 명칭을 절대 사용하지 마십시오. 대신 반드시 설정된 닉네임인 '${currentNickname}'을 사용하여 '${currentNickname} 님' (또는 Phase 3의 차가운 반말 페르소나의 경우 상황에 따라 '${currentNickname}' 그대로나 적절한 호칭)으로 지칭하십시오. 작품에 대해 서술할때, 작가라는 호칭을 붙이십시오 (e.g : 장시온 작가)`,
           temperature: phase === 1 ? 0.35 : (phase === 2 ? 0.65 : 0.95),
         })
@@ -1135,7 +1135,7 @@ export default function App() {
               <span className="text-zinc-300 font-mono font-bold block mb-1">■ SYSTEM INITIALIZATION</span>
               본 프로그램은 장시온 작가의 미디어아트 작품인 <strong>&lt;미지날리아&gt;</strong>입니다. <br></br>
               세션 활성화 전, 도슨트 가이드 RAI가 여러분을 부를 별명을 정해주세요. <br></br>
-              여러분이 작성한 메시지는 마지날리아의 데이터베이스에 기록되어 실시간으로 공유됩니다.
+              여러분이 작성한 메시지는 미지날리아의 데이터베이스에 기록되어 실시간으로 공유됩니다.
             </div>
 
             <form onSubmit={handleInitializeSession} className="space-y-4 font-sans">
