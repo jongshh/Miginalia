@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Key, Terminal, Activity, Send, Settings, EyeOff, ChevronDown, User, Volume2, VolumeX, Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import ARTWORKS from './data/artworks.json';
 
@@ -456,6 +456,50 @@ const JSTicker = ({ items, direction }) => {
   );
 };
 
+// Helper to extract reset info and filter active chats based on SYSTEM_RESET entries
+const parseActiveChats = (rawChats) => {
+  const sorted = [...rawChats].sort((a, b) => {
+    if (a.created_at && b.created_at) {
+      return new Date(a.created_at) - new Date(b.created_at);
+    }
+    return (a.id || 0) - (b.id || 0);
+  });
+
+  let resetIndex = -1;
+  let startCount = 0;
+
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const item = sorted[i];
+    if (item.nickname === 'SYSTEM_RESET') {
+      resetIndex = i;
+      try {
+        const parsed = JSON.parse(item.text);
+        startCount = parsed.startCount || 0;
+      } catch (e) {}
+      break;
+    }
+    if (item.text && item.text.startsWith('> SYSTEM_RESET:')) {
+      resetIndex = i;
+      try {
+        const jsonStr = item.text.replace('> SYSTEM_RESET:', '').trim();
+        const parsed = JSON.parse(jsonStr);
+        startCount = parsed.startCount || 0;
+      } catch (e) {}
+      break;
+    }
+  }
+
+  const activeChats = resetIndex !== -1 ? sorted.slice(resetIndex + 1) : sorted;
+  return {
+    activeChats: activeChats.filter(item => {
+      if (item.nickname === 'SYSTEM_RESET') return false;
+      if (item.text && item.text.startsWith('> SYSTEM_RESET:')) return false;
+      return true;
+    }),
+    startCount
+  };
+};
+
 export default function App() {
   const proxyUrl = import.meta.env.VITE_API_PROXY_URL || '';
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://jwoyqeguusdkvgiwdzvl.supabase.co';
@@ -516,6 +560,7 @@ export default function App() {
     return saved ? parseInt(saved) : 1;
   });
   const [chatCount, setChatCount] = useState(0);
+  const [adminError, setAdminError] = useState(null);
 
   useEffect(() => {
     sessionStorage.setItem('miginalia_phase', String(phase));
@@ -558,76 +603,111 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // DB(Supabase) 연동 - 실시간 티커, 총 채팅 수(불안정성), 글로벌 페이즈 15초 단위 동기화
-  useEffect(() => {
-    const syncExhibitionData = async () => {
-      try {
-        if (supabaseUrl && supabaseKey) {
-          // 1. 최신 채팅 목록 가져오기 (티커용 - 60명 이상 답변 대응을 위해 120개 조회)
-          const chatsRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?select=nickname,text,created_at&order=id.desc&limit=120`, {
-            headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`
-            }
-          });
-          if (chatsRes.ok) {
-            const data = await chatsRes.json();
-            // 최신 글이 오른쪽(끝)에서 등장하여 흘러가도록 배열 순서를 뒤집음 (과거 -> 현재 순)
-            const reversedData = [...data].reverse();
-            setArchiveData(reversedData.map(item => ({
-              text: `> ${item.nickname}: ${item.text}`,
-              created_at: item.created_at
-            })));
+  const syncExhibitionData = useCallback(async () => {
+    try {
+      if (supabaseUrl && supabaseKey) {
+        // Step 1: Fetch the single latest SYSTEM_RESET message
+        const resetRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?nickname=eq.SYSTEM_RESET&order=id.desc&limit=1`, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
           }
-
-          // 2. 전체 채팅 갯수 가져오기 (불안정성 계산용)
-          const countRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?select=id&limit=1`, {
-            headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Prefer': 'count=exact'
-            }
-          });
-          if (countRes.ok) {
-            const contentRange = countRes.headers.get('content-range');
-            if (contentRange) {
-              const total = parseInt(contentRange.split('/')[1]);
-              if (!isNaN(total)) setChatCount(total);
-            }
-          }
-
-          // 3. 글로벌 페이즈(Day) 정보 동기화
-          const phaseRes = await fetch(`${supabaseUrl}/rest/v1/exhibition_state?select=current_phase&id=eq.1`, {
-            headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`
-            }
-          });
-          if (phaseRes.ok) {
-            const phaseData = await phaseRes.json();
-            if (phaseData && phaseData.length > 0) {
-              setPhase(phaseData[0].current_phase);
-            }
-          }
-        } else {
-          // Supabase 미설정 시 로컬/프록시 폴백
-          const fetchUrl = proxyUrl ? `${proxyUrl}archive` : '/api/archive';
-          const res = await fetch(fetchUrl);
-          if (res.ok) {
-            const data = await res.json();
-            const reversedData = [...data].reverse();
-            setArchiveData(reversedData);
+        });
+        
+        let resetId = null;
+        let startCount = 0;
+        if (resetRes.ok) {
+          const resetData = await resetRes.json();
+          if (resetData && resetData.length > 0) {
+            const resetMsg = resetData[0];
+            resetId = resetMsg.id;
+            try {
+              const parsed = JSON.parse(resetMsg.text);
+              startCount = parsed.startCount || 0;
+            } catch (e) {}
           }
         }
-      } catch (err) {
-        console.warn("Exhibition sync failed:", err);
-      }
-    };
 
+        // Step 2: Fetch only the visitor messages created AFTER that reset record
+        // (If no reset record is found, fetch the last 120 chats as a fallback)
+        let queryUrl = `${supabaseUrl}/rest/v1/visitor_chats?select=id,nickname,text,created_at&order=id.desc`;
+        if (resetId) {
+          queryUrl += `&id=gt.${resetId}`;
+        } else {
+          queryUrl += `&limit=120`;
+        }
+
+        const chatsRes = await fetch(queryUrl, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
+          }
+        });
+
+        if (chatsRes.ok) {
+          const data = await chatsRes.json();
+          const { activeChats, startCount: parsedStartCount } = parseActiveChats(data);
+          
+          // Use startCount from Step 1 or parseActiveChats
+          const finalStartCount = resetId ? startCount : parsedStartCount;
+
+          // 최신 글이 오른쪽에서 등장하도록 배열 순서 뒤집기 (과거 -> 현재 순)
+          const reversedData = [...activeChats].reverse();
+          setArchiveData(reversedData.map(item => ({
+            text: `> ${item.nickname}: ${item.text}`,
+            created_at: item.created_at
+          })));
+
+          // chatCount = startCount + 새로운 메시지 수
+          setChatCount(finalStartCount + activeChats.length);
+        }
+
+        // 3. 글로벌 페이즈(Day) 정보 동기화
+        const phaseRes = await fetch(`${supabaseUrl}/rest/v1/exhibition_state?select=current_phase&id=eq.1`, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
+          }
+        });
+        if (phaseRes.ok) {
+          const phaseData = await phaseRes.json();
+          if (phaseData && phaseData.length > 0) {
+            setPhase(phaseData[0].current_phase);
+          }
+        }
+      } else {
+        // Supabase 미설정 시 로컬/프록시 폴백
+        const fetchUrl = proxyUrl ? `${proxyUrl}archive` : '/api/archive';
+        const res = await fetch(fetchUrl);
+        if (res.ok) {
+          const data = await res.json();
+          const { activeChats, startCount } = parseActiveChats(data);
+          setArchiveData(activeChats.map(item => {
+            if (item.nickname) {
+              return {
+                text: `> ${item.nickname}: ${item.text}`,
+                created_at: item.created_at
+              };
+            }
+            return {
+              text: item.text,
+              created_at: item.created_at || new Date().toISOString()
+            };
+          }));
+          setChatCount(startCount + activeChats.length);
+        }
+      }
+    } catch (err) {
+      console.warn("Exhibition sync failed:", err);
+    }
+  }, [supabaseUrl, supabaseKey, proxyUrl]);
+
+  // DB(Supabase) 연동 - 실시간 티커, 총 채팅 수(불안정성), 글로벌 페이즈 15초 단위 동기화
+  useEffect(() => {
     syncExhibitionData();
     const interval = setInterval(syncExhibitionData, 15000);
     return () => clearInterval(interval);
-  }, [isSessionActive, proxyUrl, supabaseUrl, supabaseKey]);
+  }, [syncExhibitionData]);
 
   // 첫 입장 시 또는 새로고침 등으로 메시지가 비었을 때 소개 대화 자동 시작
   useEffect(() => {
@@ -998,10 +1078,13 @@ export default function App() {
 
   // 글로벌 페이즈 상태 변경 (어드민용)
   const handlePhaseChange = async (newPhase) => {
+    setAdminError(null);
+    const originalPhase = phase;
     setPhase(newPhase);
     try {
       if (supabaseUrl && supabaseKey) {
-        await fetch(`${supabaseUrl}/rest/v1/exhibition_state?id=eq.1`, {
+        // 1. exhibition_state 업데이트
+        const stateRes = await fetch(`${supabaseUrl}/rest/v1/exhibition_state?id=eq.1`, {
           method: 'PATCH',
           headers: {
             'apikey': supabaseKey,
@@ -1010,9 +1093,74 @@ export default function App() {
           },
           body: JSON.stringify({ current_phase: newPhase })
         });
+        if (!stateRes.ok) {
+          throw new Error(`Exhibition state patch failed: ${stateRes.status} ${await stateRes.text()}`);
+        }
+
+        // 2. visitor_chats에 SYSTEM_RESET 삽입 (startCount: 0)
+        const resetRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            nickname: 'SYSTEM_RESET',
+            text: JSON.stringify({ phase: newPhase, startCount: 0 })
+          })
+        });
+        if (!resetRes.ok) {
+          throw new Error(`System reset log insertion failed: ${resetRes.status} ${await resetRes.text()}`);
+        }
+      } else {
+        // 로컬/프록시 환경에서도 SYSTEM_RESET 삽입
+        await persistArchiveEntry(
+          JSON.stringify({ phase: newPhase, startCount: 0 }),
+          'SYSTEM_RESET'
+        );
       }
+      // 동기화 즉시 업데이트
+      await syncExhibitionData();
     } catch (e) {
       console.error("Failed to update global phase:", e);
+      setAdminError(e.message);
+      // rollback UI state on database failure
+      setPhase(originalPhase);
+    }
+  };
+
+  // 슬라이더 조절 릴리즈 시 DB에 SYSTEM_RESET 삽입
+  const handleChatCountSliderRelease = async (newVal) => {
+    setAdminError(null);
+    try {
+      if (supabaseUrl && supabaseKey) {
+        const resetRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            nickname: 'SYSTEM_RESET',
+            text: JSON.stringify({ phase, startCount: newVal })
+          })
+        });
+        if (!resetRes.ok) {
+          throw new Error(`Failed to write slider reset point: ${resetRes.status} ${await resetRes.text()}`);
+        }
+      } else {
+        await persistArchiveEntry(
+          JSON.stringify({ phase, startCount: newVal }),
+          'SYSTEM_RESET'
+        );
+      }
+      // 동기화 즉시 업데이트
+      await syncExhibitionData();
+    } catch (e) {
+      console.error("Failed to persist manual chat count reset:", e);
+      setAdminError(e.message);
     }
   };
 
@@ -1036,6 +1184,7 @@ export default function App() {
 
   // 시스템 하드 리셋 (어드민용 - 로컬 세션 클리어 및 DB 내용 전면 삭제)
   const handleHardReset = async () => {
+    setAdminError(null);
     setPhase(1);
     setChatCount(0);
     setMessages([]);
@@ -1050,7 +1199,7 @@ export default function App() {
     try {
       if (supabaseUrl && supabaseKey) {
         // DB 페이즈 1단계로 리셋
-        await fetch(`${supabaseUrl}/rest/v1/exhibition_state?id=eq.1`, {
+        const phaseRes = await fetch(`${supabaseUrl}/rest/v1/exhibition_state?id=eq.1`, {
           method: 'PATCH',
           headers: {
             'apikey': supabaseKey,
@@ -1059,18 +1208,27 @@ export default function App() {
           },
           body: JSON.stringify({ current_phase: 1 })
         });
+        if (!phaseRes.ok) {
+          throw new Error(`Failed to reset exhibition state: ${phaseRes.status} ${await phaseRes.text()}`);
+        }
 
         // DB 채팅 기록 삭제
-        await fetch(`${supabaseUrl}/rest/v1/visitor_chats`, {
+        const deleteRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats`, {
           method: 'DELETE',
           headers: {
             'apikey': supabaseKey,
             'Authorization': `Bearer ${supabaseKey}`
           }
         });
+        if (!deleteRes.ok) {
+          throw new Error(`Failed to clear visitor chats: ${deleteRes.status} ${await deleteRes.text()}`);
+        }
       }
+      // 동기화 즉시 업데이트
+      await syncExhibitionData();
     } catch (e) {
       console.error("Failed to reset DB on hard reset:", e);
+      setAdminError(e.message);
     }
   };
 
@@ -1640,6 +1798,15 @@ export default function App() {
             </form>
           ) : (
             <div className="space-y-5">
+              {adminError && (
+                <div className="bg-red-950/20 border border-red-900/50 p-2.5 rounded text-red-400 text-[10px] flex items-start gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-500" />
+                  <div className="flex-1">
+                    <p className="font-bold">Database Error</p>
+                    <p className="mt-0.5 text-[9px] text-red-500/80">{adminError}</p>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-[#888] mb-2 font-bold">PHASE (Day 1-3)</label>
                 <div className="flex gap-2">
@@ -1665,9 +1832,11 @@ export default function App() {
                   min="0" max="150"
                   value={chatCount}
                   onChange={(e) => setChatCount(parseInt(e.target.value))}
+                  onMouseUp={(e) => handleChatCountSliderRelease(parseInt(e.target.value))}
+                  onTouchEnd={(e) => handleChatCountSliderRelease(parseInt(e.target.value))}
                   className="w-full accent-white"
                 />
-                <span className="text-[9px] text-[#555] mt-1 block">※ DB 총 채팅 갯수가 자동으로 연동됩니다.</span>
+                <span className="text-[9px] text-[#555] mt-1 block">※ 조절 후 마우스를 놓으면 DB에 기준 챗 수가 반영되어 모든 클라이언트에 동기화됩니다.</span>
               </div>
 
               <div className="bg-[#111] p-3 border border-[#333] rounded">
