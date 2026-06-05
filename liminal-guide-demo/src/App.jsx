@@ -606,7 +606,25 @@ export default function App() {
   const syncExhibitionData = useCallback(async () => {
     try {
       if (supabaseUrl && supabaseKey) {
-        // Step 1: Fetch the single latest SYSTEM_RESET message
+        // 1. 티커 데이터 조회 (SYSTEM_RESET 제외, 최신 60개)
+        const tickerRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?select=nickname,text,created_at&nickname=neq.SYSTEM_RESET&order=id.desc&limit=60`, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
+          }
+        });
+        if (tickerRes.ok) {
+          const data = await tickerRes.json();
+          // 최신 글이 오른쪽에서 등장하도록 배열 순서 뒤집기 (과거 -> 현재 순)
+          const reversedData = [...data].reverse();
+          setArchiveData(reversedData.map(item => ({
+            text: `> ${item.nickname}: ${item.text}`,
+            created_at: item.created_at
+          })));
+        }
+
+        // 2. 불안정성용 chatCount 계산 (SYSTEM_RESET 지점 기준)
+        // Step 2-1: 최신 SYSTEM_RESET 메시지 1개 가져오기
         const resetRes = await fetch(`${supabaseUrl}/rest/v1/visitor_chats?nickname=eq.SYSTEM_RESET&order=id.desc&limit=1`, {
           headers: {
             'apikey': supabaseKey,
@@ -628,38 +646,22 @@ export default function App() {
           }
         }
 
-        // Step 2: Fetch only the visitor messages created AFTER that reset record
-        // (If no reset record is found, fetch the last 120 chats as a fallback)
-        let queryUrl = `${supabaseUrl}/rest/v1/visitor_chats?select=id,nickname,text,created_at&order=id.desc`;
+        // Step 2-2: 리셋 이후 작성된 일반 관람객 메시지 갯수 계산
+        let countUrl = `${supabaseUrl}/rest/v1/visitor_chats?select=id&nickname=neq.SYSTEM_RESET`;
         if (resetId) {
-          queryUrl += `&id=gt.${resetId}`;
-        } else {
-          queryUrl += `&limit=120`;
+          countUrl += `&id=gt.${resetId}`;
         }
-
-        const chatsRes = await fetch(queryUrl, {
+        
+        const countRes = await fetch(countUrl, {
           headers: {
             'apikey': supabaseKey,
             'Authorization': `Bearer ${supabaseKey}`
           }
         });
 
-        if (chatsRes.ok) {
-          const data = await chatsRes.json();
-          const { activeChats, startCount: parsedStartCount } = parseActiveChats(data);
-          
-          // Use startCount from Step 1 or parseActiveChats
-          const finalStartCount = resetId ? startCount : parsedStartCount;
-
-          // 최신 글이 오른쪽에서 등장하도록 배열 순서 뒤집기 (과거 -> 현재 순)
-          const reversedData = [...activeChats].reverse();
-          setArchiveData(reversedData.map(item => ({
-            text: `> ${item.nickname}: ${item.text}`,
-            created_at: item.created_at
-          })));
-
-          // chatCount = startCount + 새로운 메시지 수
-          setChatCount(finalStartCount + activeChats.length);
+        if (countRes.ok) {
+          const countData = await countRes.json();
+          setChatCount(startCount + countData.length);
         }
 
         // 3. 글로벌 페이즈(Day) 정보 동기화
@@ -681,8 +683,24 @@ export default function App() {
         const res = await fetch(fetchUrl);
         if (res.ok) {
           const data = await res.json();
-          const { activeChats, startCount } = parseActiveChats(data);
-          setArchiveData(activeChats.map(item => {
+          
+          // 로컬 데이터 정렬 (과거 -> 현재 순)
+          const sorted = [...data].sort((a, b) => {
+            if (a.created_at && b.created_at) {
+              return new Date(a.created_at) - new Date(b.created_at);
+            }
+            return (a.id || 0) - (b.id || 0);
+          });
+
+          // 티커: SYSTEM_RESET 제외하고 최신 60개 가져오기
+          const visitorChats = sorted.filter(item => {
+            if (item.nickname === 'SYSTEM_RESET') return false;
+            if (item.text && item.text.startsWith('> SYSTEM_RESET:')) return false;
+            return true;
+          });
+          const latest60Visitor = visitorChats.slice(-60);
+
+          setArchiveData(latest60Visitor.map(item => {
             if (item.nickname) {
               return {
                 text: `> ${item.nickname}: ${item.text}`,
@@ -694,7 +712,39 @@ export default function App() {
               created_at: item.created_at || new Date().toISOString()
             };
           }));
-          setChatCount(startCount + activeChats.length);
+
+          // chatCount 계산: 최신 SYSTEM_RESET 찾아서 그 이후의 일반 관람객 수 계산
+          let resetIndex = -1;
+          let startCount = 0;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            const item = sorted[i];
+            if (item.nickname === 'SYSTEM_RESET') {
+              resetIndex = i;
+              try {
+                const parsed = JSON.parse(item.text);
+                startCount = parsed.startCount || 0;
+              } catch (e) {}
+              break;
+            }
+            if (item.text && item.text.startsWith('> SYSTEM_RESET:')) {
+              resetIndex = i;
+              try {
+                const jsonStr = item.text.replace('> SYSTEM_RESET:', '').trim();
+                const parsed = JSON.parse(jsonStr);
+                startCount = parsed.startCount || 0;
+              } catch (e) {}
+              break;
+            }
+          }
+
+          const chatsSinceReset = resetIndex !== -1 ? sorted.slice(resetIndex + 1) : sorted;
+          const visitorChatsSinceReset = chatsSinceReset.filter(item => {
+            if (item.nickname === 'SYSTEM_RESET') return false;
+            if (item.text && item.text.startsWith('> SYSTEM_RESET:')) return false;
+            return true;
+          });
+
+          setChatCount(startCount + visitorChatsSinceReset.length);
         }
       }
     } catch (err) {
