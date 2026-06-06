@@ -179,8 +179,13 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova', on
   }
 
   try {
-    // 문장별로 분할하여 병렬 TTS 요청
-    const sentences = splitIntoSentences(text);
+    // 문장별로 분할하여 병렬 TTS 요청 (말할 수 있는 문자가 있는 문장만 필터링)
+    const sentences = splitIntoSentences(text).filter(s => /[a-zA-Z0-9ㄱ-ㅎㅏ-ㅣ가-힣]/.test(s));
+    if (sentences.length === 0) {
+      if (onReadyToPlay) onReadyToPlay(0);
+      return;
+    }
+
     const bufferPromises = sentences.map(s => {
       let sentenceVoice = voice;
       let sentenceSpeed = speed;
@@ -190,7 +195,7 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova', on
         const allVoices = ['nova', 'shimmer', 'alloy', 'echo', 'fable', 'onyx'];
         sentenceVoice = allVoices[Math.floor(Math.random() * allVoices.length)];
         // 속도도 어색함을 극대화하기 위해 청크별로 미세 변조
-        sentenceSpeed = 0.82 + (Math.random() * 0.12);
+        sentenceSpeed = parseFloat((0.82 + (Math.random() * 0.12)).toFixed(2));
       }
 
       return fetchTtsChunk(proxyUrl, s, sentenceVoice, sentenceSpeed);
@@ -531,7 +536,7 @@ export default function App() {
   });
   const [isAudioEnabled, setIsAudioEnabled] = useState(() => {
     const saved = sessionStorage.getItem('miginalia_audio_enabled');
-    return saved !== null ? saved === 'true' : false;
+    return saved !== null ? saved === 'true' : true;
   });
 
   // 세션 토큰 사용량 제어 상태 (과청구 방지용 글자수/토큰 제한)
