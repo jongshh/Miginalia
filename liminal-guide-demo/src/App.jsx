@@ -226,7 +226,12 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova', on
         source.playbackRate.value = 0.96 + (Math.random() * 0.08); // 0.96 ~ 1.04
 
         const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0.95;
+
+        // Safari/WebKit 버그 방지: 기본값 0.95를 ConstantSourceNode로 공급
+        const constantSource = audioCtx.createConstantSource();
+        constantSource.offset.value = 0.95;
+        constantSource.connect(gainNode.gain);
+        constantSource.start(playTime);
 
         const lfo = audioCtx.createOscillator();
         const lfoGain = audioCtx.createGain();
@@ -239,7 +244,11 @@ const speakText = async (text, instability, proxyUrl, selectedVoice = 'nova', on
         source.connect(gainNode);
         gainNode.connect(audioCtx.destination);
         source.start(playTime);
-        source.onended = () => lfo.stop();
+        
+        source.onended = () => {
+          try { lfo.stop(); } catch (e) {}
+          try { constantSource.stop(); } catch (e) {}
+        };
       } else {
         // Phase 3: 문장별 극심한 피치 흔들림 및 딜레이
         source.playbackRate.value = 0.72 + (Math.random() * 0.5); // 0.72 ~ 1.22
@@ -522,7 +531,7 @@ export default function App() {
   });
   const [isAudioEnabled, setIsAudioEnabled] = useState(() => {
     const saved = sessionStorage.getItem('miginalia_audio_enabled');
-    return saved !== null ? saved === 'false' : false;
+    return saved !== null ? saved === 'true' : false;
   });
 
   // 세션 토큰 사용량 제어 상태 (과청구 방지용 글자수/토큰 제한)
